@@ -1,0 +1,45 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "in-lite Account",
+                "description": "Enter the email address associated with your in-lite account. A verification code will be sent to this address.",
+                "data": {
+                    "email": "Email"
+                }
+            },
+            "verify": {
+                "title": "Verification Code",
+                "description": "We sent a verification code to **{email}**. Enter the 6-digit code below.",
+                "data": {
+                    "code": "Verification code"
+                }
+            },
+            "select_garden": {
+                "title": "Select Garden",
+                "description": "Your account has multiple gardens. Select the one you want to set up.",
+                "data": {
+                    "garden": "Garden"
+                }
+            },
+            "bluetooth_confirm": {
+                "title": "Confirm Device",
+                "description": "An in-lite hub was discovered nearby. Would you like to set it up?"
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate",
+                "description": "The credentials for **{email}** need to be updated. Press submit to re-authenticate."
+            }
+        },
+        "error": {
+            "cannot_connect": "Unable to connect to the in-lite cloud service. Please try again.",
+            "invalid_auth": "Invalid or expired verification code. Please check and try again.",
+            "no_gardens": "No gardens found on this account.",
+            "unknown": "An unexpected error occurred. Please try again."
+        },
+        "abort": {
+            "already_configured": "This garden is already configured.",
+            "reauth_successful": "Re-authentication successful."
+        }
+    }
+}

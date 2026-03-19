@@ -1,0 +1,10 @@
+[project]
+name = "ha-inlite"
+version = "0.2.0"
+description = "Home Assistant custom integration for in-lite outdoor lighting"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["custom_components/inlite/lib"]

@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug with the in-lite integration
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below.
+        Search [existing issues](https://github.com/bbruenings/ha-inlite/issues) before opening a new one.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to Settings → Devices & Services
+        2. Click on in-lite integration
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2025.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: Integration version
+      description: Found in HACS or in manifest.json
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ble-adapter
+    attributes:
+      label: Bluetooth adapter type
+      options:
+        - Built-in (laptop/SBC)
+        - USB dongle
+        - ESPHome Bluetooth Proxy
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug logs
+      description: |
+        Please provide relevant logs. Enable debug logging by adding this to `configuration.yaml`:
+        ```yaml
+        logger:
+          logs:
+            custom_components.inlite: debug
+            inlite_ble: debug
+        ```
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other relevant information (screenshots, hardware details, etc.).
+    validations:
+      required: false
