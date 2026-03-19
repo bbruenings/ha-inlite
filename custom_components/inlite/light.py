@@ -84,7 +84,7 @@ class InliteLightEntity(CoordinatorEntity[InliteCoordinator], LightEntity):
             identifiers={(DOMAIN, f"{garden_id}_{device_id}")},
             name=tx_name,
             manufacturer="in-lite",
-            model="SMART HUB-150",
+            model=tx_name,
             sw_version=str(firmware),
             suggested_area=garden_name,
         )
