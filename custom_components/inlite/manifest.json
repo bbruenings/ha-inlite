@@ -1,6 +1,12 @@
 {
     "domain": "inlite",
     "name": "in-lite Outdoor Lighting",
+    "bluetooth": [
+        {
+            "local_name": "inlitebt",
+            "connectable": true
+        }
+    ],
     "codeowners": ["@bbruenings"],
     "config_flow": true,
     "dependencies": ["bluetooth"],
@@ -8,12 +14,6 @@
     "integration_type": "device",
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/bbruenings/ha-inlite/issues",
-    "bluetooth": [
-        {
-            "local_name": "inlitebt",
-            "connectable": true
-        }
-    ],
     "requirements": [
         "pycryptodomex>=3.20.0"
     ],
