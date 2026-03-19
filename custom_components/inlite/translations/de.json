@@ -1,0 +1,45 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "in-lite Konto",
+                "description": "Gib die E-Mail-Adresse deines in-lite Kontos ein. Ein Bestätigungscode wird an diese Adresse gesendet.",
+                "data": {
+                    "email": "E-Mail"
+                }
+            },
+            "verify": {
+                "title": "Bestätigungscode",
+                "description": "Wir haben einen Bestätigungscode an **{email}** gesendet. Gib den 6-stelligen Code unten ein.",
+                "data": {
+                    "code": "Bestätigungscode"
+                }
+            },
+            "select_garden": {
+                "title": "Garten auswählen",
+                "description": "Dein Konto hat mehrere Gärten. Wähle den Garten aus, den du einrichten möchtest.",
+                "data": {
+                    "garden": "Garten"
+                }
+            },
+            "bluetooth_confirm": {
+                "title": "Gerät bestätigen",
+                "description": "Ein in-lite Hub wurde in der Nähe gefunden. Möchtest du ihn einrichten?"
+            },
+            "reauth_confirm": {
+                "title": "Erneut authentifizieren",
+                "description": "Die Anmeldedaten für **{email}** müssen aktualisiert werden. Klicke auf Absenden, um dich erneut zu authentifizieren."
+            }
+        },
+        "error": {
+            "cannot_connect": "Verbindung zum in-lite Cloud-Dienst nicht möglich. Bitte versuche es erneut.",
+            "invalid_auth": "Ungültiger oder abgelaufener Bestätigungscode. Bitte überprüfe den Code und versuche es erneut.",
+            "no_gardens": "Keine Gärten in diesem Konto gefunden.",
+            "unknown": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut."
+        },
+        "abort": {
+            "already_configured": "Dieser Garten ist bereits eingerichtet.",
+            "reauth_successful": "Erneute Authentifizierung erfolgreich."
+        }
+    }
+}
