@@ -37,6 +37,14 @@ Energy (BLE) mesh using the CSRmesh protocol.
 | Device | Status |
 |--------|--------|
 | in-lite SMART HUB-150 | ✅ Tested |
+| in-lite SMART HUB-75 | ⚠️ Untested |
+
+> [!WARNING]
+> This integration has only been tested with the **SMART HUB-150**. The
+> SMART HUB-75 may work since it uses the same app and cloud service, but
+> this has not been verified. If you own a HUB-75 and are willing to test,
+> please [open an issue](https://github.com/bbruenings/ha-inlite/issues) —
+> your feedback is very welcome!
 
 The integration controls all transformer zones connected to the hub. If you
 have tested additional hardware, please
@@ -124,6 +132,10 @@ Contributions are welcome! Please:
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+This integration was built with the help of [GitHub Copilot](https://github.com/features/copilot).
 
 ---
 
