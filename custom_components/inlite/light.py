@@ -58,6 +58,7 @@ class InliteLightEntity(CoordinatorEntity[InliteCoordinator], LightEntity):
     """Represents a single in-lite light zone."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "zone"
     _attr_color_mode = ColorMode.ONOFF
     _attr_supported_color_modes = {ColorMode.ONOFF}
 
