@@ -17,9 +17,5 @@
     "requirements": [
         "pycryptodomex>=3.20.0"
     ],
-    "version": "0.2.1",
-    "brand": {
-        "logo": "brand/logo.png",
-        "icon": "brand/icon.png"
-    }
+    "version": "0.2.1"
 }
