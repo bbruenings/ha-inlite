@@ -1,0 +1,9 @@
+{
+    "entity": {
+        "light": {
+            "zone": {
+                "default": "mdi:outdoor-lamp"
+            }
+        }
+    }
+}
