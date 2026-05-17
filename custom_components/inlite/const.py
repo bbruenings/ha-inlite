@@ -10,11 +10,19 @@ CONF_GARDEN_NAME = "garden_name"
 CONF_PASSWORD = "password"
 CONF_TRANSFORMERS = "transformers"
 
-# Coordinator
-DEFAULT_SCAN_INTERVAL = 120  # seconds between BLE state polls
+# Options flow keys
+CONF_SCAN_INTERVAL = "scan_interval"
+CONF_IDLE_DISCONNECT = "idle_disconnect"
+
+# Coordinator defaults
+DEFAULT_SCAN_INTERVAL = 30  # seconds between BLE state polls
+MIN_SCAN_INTERVAL = 10
+MAX_SCAN_INTERVAL = 300
 
 # BLE
 BLE_LOCAL_NAME = "inlitebt"
 
-# Connection management
-BLE_IDLE_DISCONNECT_SECONDS = 300  # disconnect after 5 min idle
+# Connection management defaults
+DEFAULT_IDLE_DISCONNECT_SECONDS = 3600  # 1 hour — keeps connection alive for OOB updates
+MIN_IDLE_DISCONNECT_SECONDS = 60
+MAX_IDLE_DISCONNECT_SECONDS = 7200

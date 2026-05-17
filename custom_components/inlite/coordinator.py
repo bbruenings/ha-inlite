@@ -3,6 +3,7 @@
 Manages a persistent BLE connection with a connection lock to serialize
 all hub communication. Connects once and queries all hubs before disconnecting.
 Includes retry-with-reconnect for both commands and polling.
+Receives OOB broadcast notifications for real-time state updates.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any
 
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components import bluetooth
@@ -21,10 +21,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from inlite_ble.hub import InliteHub, ZoneState
 
 from .const import (
-    BLE_IDLE_DISCONNECT_SECONDS,
     BLE_LOCAL_NAME,
+    CONF_IDLE_DISCONNECT,
     CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
     CONF_TRANSFORMERS,
+    DEFAULT_IDLE_DISCONNECT_SECONDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
@@ -45,16 +47,18 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
     - Single BLE connection shared across all hubs (they share a gateway)
     - Retry with disconnect-reconnect on command/poll failure
     - Cached BLE device reference from advertisement callbacks
+    - OOB broadcast callback for real-time state push from the hub
     - Proper cleanup on unload
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize coordinator."""
+        scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.entry = entry
         self._hubs: dict[int, InliteHub] = {}
@@ -62,6 +66,9 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         self._ble_lock = asyncio.Lock()
         self._disconnect_timer: asyncio.TimerHandle | None = None
         self._ble_service_info: bluetooth.BluetoothServiceInfoBleak | None = None
+        self._idle_disconnect_seconds = entry.options.get(
+            CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
+        )
 
         password = entry.data[CONF_PASSWORD]
         for tx_data in entry.data[CONF_TRANSFORMERS]:
@@ -69,6 +76,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
             hub = InliteHub(
                 device_id=device_id,
                 passphrase=password,
+                on_state_update=self._handle_oob_state_update,
             )
             self._hubs[device_id] = hub
 
@@ -90,6 +98,23 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         (critical for ESPHome BLE proxy failover).
         """
         self._ble_service_info = service_info
+
+    def _handle_oob_state_update(self) -> None:
+        """Handle an OOB broadcast notification from a hub.
+
+        Called (on the event loop via call_soon_threadsafe) when the hub receives
+        a state change broadcast (e.g., physical button press, timer trigger).
+        Builds the full state dict from all hubs and pushes it to HA entities.
+        """
+        all_states: dict[int, dict[int, ZoneState]] = {}
+        for device_id, hub in self._hubs.items():
+            if hub.zone_states:
+                all_states[device_id] = hub.zone_states
+
+        if all_states:
+            _LOGGER.debug("OOB state update received, pushing to HA entities")
+            self._available = True
+            self.async_set_updated_data(all_states)
 
     def _find_ble_device(self) -> bluetooth.BluetoothServiceInfoBleak | None:
         """Find the in-lite hub, preferring the cached reference."""
@@ -125,7 +150,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         """Schedule a disconnect after the idle timeout."""
         self._cancel_idle_disconnect()
         self._disconnect_timer = self.hass.loop.call_later(
-            BLE_IDLE_DISCONNECT_SECONDS,
+            self._idle_disconnect_seconds,
             lambda: self.hass.async_create_task(self._idle_disconnect()),
         )
 
