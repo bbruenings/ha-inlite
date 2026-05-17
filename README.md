@@ -29,7 +29,7 @@ Energy (BLE) mesh using the CSRmesh protocol.
 
 - **Home Assistant** 2024.12.0 or newer
 - **Bluetooth adapter** — built-in, USB dongle, or [ESPHome Bluetooth Proxy](https://esphome.github.io/bluetooth-proxies/)
-- **in-lite SMART HUB-150** with BLE gateway (device advertises as `inlitebt`)
+- **in-lite SMART HUB-150** or **SMART HUB-75** with BLE gateway (device advertises as `inlitebt`)
 - **in-lite cloud account** — needed once during setup to retrieve the encryption passphrase
 
 ## Supported Devices
@@ -37,14 +37,11 @@ Energy (BLE) mesh using the CSRmesh protocol.
 | Device | Status |
 |--------|--------|
 | in-lite SMART HUB-150 | ✅ Tested |
-| in-lite SMART HUB-75 | ⚠️ Untested |
+| in-lite SMART HUB-75 | ✅ Community verified |
 
-> [!WARNING]
-> This integration has only been tested with the **SMART HUB-150**. The
-> SMART HUB-75 may work since it uses the same app and cloud service, but
-> this has not been verified. If you own a HUB-75 and are willing to test,
-> please [open an issue](https://github.com/bbruenings/ha-inlite/issues) —
-> your feedback is very welcome!
+> [!TIP]
+> The **SMART HUB-75** has been confirmed working by the community using an
+> ESPHome Bluetooth Proxy on an ESP32. Setup is the same as for the HUB-150.
 
 The integration controls all transformer zones connected to the hub. If you
 have tested additional hardware, please
