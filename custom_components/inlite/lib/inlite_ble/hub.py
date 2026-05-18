@@ -81,6 +81,7 @@ class InliteHub:
         device_id: The hub's mesh device ID (from cloud API transformers[].deviceId)
         passphrase: The garden's network passphrase (from cloud API gardens[].password)
         ble_address: BLE device address or name (e.g., 'inlitebt' or a MAC/UUID)
+        on_state_update: Optional callback invoked when OOB broadcast updates zone states.
     """
 
     def __init__(
@@ -88,6 +89,7 @@ class InliteHub:
         device_id: int,
         passphrase: str,
         ble_address: str = "inlitebt",
+        on_state_update: Callable[[], None] | None = None,
     ) -> None:
         self._device_id = device_id
         self._crypto = CsrMeshCrypto(passphrase)
@@ -100,6 +102,7 @@ class InliteHub:
         self._last_stream_data = b""
         self._zone_states: dict[int, ZoneState] = {}
         self._notification_callback: Callable[[dict[str, Any]], None] | None = None
+        self._on_state_update = on_state_update
 
     @property
     def device_id(self) -> int:
@@ -222,23 +225,31 @@ class InliteHub:
 
         data = payload[3:]
         i = 0
+        changed = False
         while i + 3 < len(data):
             outlet_id = data[i]
             output_mode = data[i + 1]
             output_state = data[i + 2]
             # data[i + 3] = rtcTimer
             if outlet_id in self._zone_states:
-                self._zone_states[outlet_id].output_mode = output_mode
-                self._zone_states[outlet_id].output_state = output_state
+                old = self._zone_states[outlet_id]
+                if old.output_mode != output_mode or old.output_state != output_state:
+                    changed = True
+                old.output_mode = output_mode
+                old.output_state = output_state
             else:
                 self._zone_states[outlet_id] = ZoneState(
                     output_id=outlet_id,
                     output_mode=output_mode,
                     output_state=output_state,
                 )
+                changed = True
             _LOGGER.debug("OOB update: zone %d mode=0x%02X state=0x%02X",
                           outlet_id, output_mode, output_state)
             i += 4
+
+        if changed and self._on_state_update is not None:
+            self._on_state_update()
 
     async def _write(self, packet: bytes) -> None:
         """Write an encrypted packet to the hub."""

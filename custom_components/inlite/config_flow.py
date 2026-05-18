@@ -4,6 +4,7 @@ Supports three entry points:
 - User-initiated: email → code → select garden
 - Bluetooth discovery: HA finds "inlitebt" → user confirms → email flow
 - Reauth: re-run email/code flow to update credentials
+- Options: configure scan interval and idle disconnect timeout
 """
 
 from __future__ import annotations
@@ -14,7 +15,13 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from inlite_ble.cloud import (
@@ -28,9 +35,17 @@ from inlite_ble.cloud import (
 from .const import (
     CONF_GARDEN_ID,
     CONF_GARDEN_NAME,
+    CONF_IDLE_DISCONNECT,
     CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
     CONF_TRANSFORMERS,
+    DEFAULT_IDLE_DISCONNECT_SECONDS,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_IDLE_DISCONNECT_SECONDS,
+    MAX_SCAN_INTERVAL,
+    MIN_IDLE_DISCONNECT_SECONDS,
+    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +62,12 @@ class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
         self._gardens: list[Garden] = []
         self._discovery_info: BluetoothServiceInfoBleak | None = None
         self._reauth_entry: ConfigEntry | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> InliteOptionsFlow:
+        """Get the options flow handler."""
+        return InliteOptionsFlow(config_entry)
 
     # ------------------------------------------------------------------
     # Bluetooth discovery entry point
@@ -224,4 +245,49 @@ class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             description_placeholders={"email": self._email or ""},
+        )
+
+
+class InliteOptionsFlow(OptionsFlow):
+    """Handle in-lite options."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current_scan = self._config_entry.options.get(
+            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+        )
+        current_idle = self._config_entry.options.get(
+            CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SCAN_INTERVAL, default=current_scan
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                    ),
+                    vol.Required(
+                        CONF_IDLE_DISCONNECT, default=current_idle
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_IDLE_DISCONNECT_SECONDS,
+                            max=MAX_IDLE_DISCONNECT_SECONDS,
+                        ),
+                    ),
+                }
+            ),
         )
