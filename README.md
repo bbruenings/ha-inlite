@@ -126,6 +126,14 @@ Contributions are welcome! Please:
 2. Fork the repository and create a feature branch
 3. Submit a pull request
 
+### Adding support for new devices
+
+If you want to contribute support for hardware you don't own (or help capture
+data from devices you do own), see the
+**[Reverse Engineering Guide](docs/reverse-engineering.md)** — it covers
+HTTP proxy setup (mitmproxy) and BLE packet capture (PacketLogger) on iOS and
+macOS.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
