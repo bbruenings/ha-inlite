@@ -8,16 +8,30 @@ from inlite_ble.hub import InliteHub, ZoneState
 class TestZoneState:
     """Tests for ZoneState."""
 
-    def test_is_on_when_mode_bit_set(self) -> None:
-        zs = ZoneState(output_id=0, output_mode=0x01)
+    def test_is_on_when_state_set(self) -> None:
+        zs = ZoneState(output_id=0, output_state=0x01)
         assert zs.is_on is True
 
-    def test_is_off_when_mode_bit_clear(self) -> None:
-        zs = ZoneState(output_id=0, output_mode=0x00)
+    def test_is_off_when_state_clear(self) -> None:
+        zs = ZoneState(output_id=0, output_state=0x00)
         assert zs.is_on is False
 
-    def test_is_on_with_other_bits(self) -> None:
-        zs = ZoneState(output_id=0, output_mode=0x03)
+    def test_is_off_in_auto_mode_when_state_clear(self) -> None:
+        """Auto/dusk-to-dawn mode (0x01) with the output currently off.
+
+        Regression test: the physical button can leave output_mode at
+        0x01 (auto) while output_state correctly drops to 0 — is_on must
+        follow output_state, not the mode bit.
+        """
+        zs = ZoneState(output_id=0, output_mode=0x01, output_state=0x00)
+        assert zs.is_on is False
+
+    def test_is_on_in_auto_mode_when_state_set(self) -> None:
+        zs = ZoneState(output_id=0, output_mode=0x01, output_state=0x01)
+        assert zs.is_on is True
+
+    def test_is_on_with_other_state_bits(self) -> None:
+        zs = ZoneState(output_id=0, output_state=0x03)
         assert zs.is_on is True
 
     def test_repr(self) -> None:
