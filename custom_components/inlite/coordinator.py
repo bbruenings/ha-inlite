@@ -134,16 +134,27 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         if info is None:
             raise ConnectionError("in-lite hub not found in bluetooth scanner")
 
-        _LOGGER.debug("Connecting to %s via HA bluetooth", info.address)
-        client = await establish_connection(
-            BleakClientWithServiceCache,
-            info.device,
-            info.address,
-            max_attempts=3,
+        _LOGGER.debug(
+            "Connecting to %s via HA bluetooth (source: %s)",
+            info.address, getattr(info, "source", "unknown"),
         )
+        try:
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                info.device,
+                info.address,
+                max_attempts=3,
+            )
+        except Exception:
+            # The cached advertisement may be stale (e.g. after an ESPHome
+            # proxy restart) — force a fresh scanner lookup on the next
+            # attempt instead of repeatedly retrying the same bad reference.
+            self._ble_service_info = None
+            raise
 
         connected = await hub.connect(client=client)
         if not connected:
+            self._ble_service_info = None
             raise ConnectionError("Hub notification setup failed")
 
     def _schedule_idle_disconnect(self) -> None:
@@ -187,12 +198,14 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
                         self._available = True
                         break
                     except Exception as err:
+                        last_attempt = attempt == MAX_POLL_ATTEMPTS - 1
                         _LOGGER.warning(
                             "Poll attempt %d/%d for hub 0x%04X failed: %s",
                             attempt + 1, MAX_POLL_ATTEMPTS, device_id, err,
+                            exc_info=err if last_attempt else None,
                         )
                         await hub.disconnect()
-                        if attempt < MAX_POLL_ATTEMPTS - 1:
+                        if not last_attempt:
                             await asyncio.sleep(RETRY_BACKOFF_SECONDS)
 
             self._schedule_idle_disconnect()
