@@ -25,9 +25,11 @@ from .const import (
     CONF_IDLE_DISCONNECT,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
+    CONF_STARTUP_DELAY,
     CONF_TRANSFORMERS,
     DEFAULT_IDLE_DISCONNECT_SECONDS,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STARTUP_DELAY_SECONDS,
     DOMAIN,
 )
 
@@ -69,6 +71,10 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         self._idle_disconnect_seconds = entry.options.get(
             CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
         )
+        self._startup_delay_seconds = entry.options.get(
+            CONF_STARTUP_DELAY, DEFAULT_STARTUP_DELAY_SECONDS
+        )
+        self._startup_delay_applied = False
 
         password = entry.data[CONF_PASSWORD]
         for tx_data in entry.data[CONF_TRANSFORMERS]:
@@ -188,7 +194,18 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         Connects once, queries all hubs, then schedules idle disconnect.
         Retries once per hub on failure (disconnect-reconnect between attempts).
         All operations are serialized under the BLE lock.
+        On the first refresh after integration load, applies the configured
+        startup delay (if any) before the initial _ensure_connected call.
         """
+        # Apply startup delay only once: before the first _ensure_connected call
+        if not self._startup_delay_applied and self._startup_delay_seconds > 0:
+            _LOGGER.debug(
+                "Applying startup delay of %d seconds before first refresh",
+                self._startup_delay_seconds,
+            )
+            await asyncio.sleep(self._startup_delay_seconds)
+            self._startup_delay_applied = True
+
         async with self._ble_lock:
             self._cancel_idle_disconnect()
             all_states: dict[int, dict[int, ZoneState]] = {}

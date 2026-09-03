@@ -13,11 +13,17 @@ CONF_TRANSFORMERS = "transformers"
 # Options flow keys
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_IDLE_DISCONNECT = "idle_disconnect"
+CONF_STARTUP_DELAY = "startup_delay_seconds"
 
 # Coordinator defaults
 DEFAULT_SCAN_INTERVAL = 30  # seconds between BLE state polls
 MIN_SCAN_INTERVAL = 10
 MAX_SCAN_INTERVAL = 300
+
+# Startup delay for slow Bluetooth discovery (e.g., ESPHome proxies)
+DEFAULT_STARTUP_DELAY_SECONDS = 0
+MIN_STARTUP_DELAY_SECONDS = 0
+MAX_STARTUP_DELAY_SECONDS = 30
 
 # BLE
 BLE_LOCAL_NAME = "inlitebt"

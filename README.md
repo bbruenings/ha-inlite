@@ -106,6 +106,20 @@ disconnect-reconnect between attempts. If commands still fail:
 - Consider using an [ESPHome Bluetooth Proxy](https://esphome.github.io/bluetooth-proxies/) positioned near the hub
 - Check Home Assistant logs for BLE connection errors
 
+### Slow Bluetooth discovery on startup
+
+If your hub takes time to appear in Bluetooth discovery (common with ESPHome
+proxies during HA startup), configure a **Startup Delay** in the integration
+options:
+
+1. Go to **Settings** → **Devices & Services**
+2. Find your **in-lite** integration and click **Configure**
+3. Set **Startup Delay** (0–30 seconds) to give Bluetooth discovery time to populate
+4. Click **Submit**
+
+This delay applies only once, before the first connection attempt after the
+integration loads.
+
 ### Enable debug logging
 
 Add the following to your `configuration.yaml` for detailed logs:
