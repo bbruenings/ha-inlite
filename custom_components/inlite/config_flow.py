@@ -38,14 +38,18 @@ from .const import (
     CONF_IDLE_DISCONNECT,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
+    CONF_STARTUP_DELAY,
     CONF_TRANSFORMERS,
     DEFAULT_IDLE_DISCONNECT_SECONDS,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STARTUP_DELAY_SECONDS,
     DOMAIN,
     MAX_IDLE_DISCONNECT_SECONDS,
     MAX_SCAN_INTERVAL,
+    MAX_STARTUP_DELAY_SECONDS,
     MIN_IDLE_DISCONNECT_SECONDS,
     MIN_SCAN_INTERVAL,
+    MIN_STARTUP_DELAY_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -268,6 +272,9 @@ class InliteOptionsFlow(OptionsFlow):
         current_idle = self._config_entry.options.get(
             CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
         )
+        current_startup_delay = self._config_entry.options.get(
+            CONF_STARTUP_DELAY, DEFAULT_STARTUP_DELAY_SECONDS
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -286,6 +293,15 @@ class InliteOptionsFlow(OptionsFlow):
                         vol.Range(
                             min=MIN_IDLE_DISCONNECT_SECONDS,
                             max=MAX_IDLE_DISCONNECT_SECONDS,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_STARTUP_DELAY, default=current_startup_delay
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_STARTUP_DELAY_SECONDS,
+                            max=MAX_STARTUP_DELAY_SECONDS,
                         ),
                     ),
                 }
