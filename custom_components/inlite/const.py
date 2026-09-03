@@ -20,10 +20,11 @@ DEFAULT_SCAN_INTERVAL = 30  # seconds between BLE state polls
 MIN_SCAN_INTERVAL = 10
 MAX_SCAN_INTERVAL = 300
 
-# Startup delay for slow Bluetooth discovery (e.g., ESPHome proxies)
-DEFAULT_STARTUP_DELAY_SECONDS = 0
+# Maximum initial discovery wait for slow Bluetooth discovery (e.g., ESPHome
+# proxies). Set to 0 to disable the initial recovery window.
+DEFAULT_STARTUP_DELAY_SECONDS = 120
 MIN_STARTUP_DELAY_SECONDS = 0
-MAX_STARTUP_DELAY_SECONDS = 30
+MAX_STARTUP_DELAY_SECONDS = 600
 
 # BLE
 BLE_LOCAL_NAME = "inlitebt"

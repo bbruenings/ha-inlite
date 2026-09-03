@@ -38,6 +38,8 @@ _LOGGER = logging.getLogger(__name__)
 MAX_COMMAND_ATTEMPTS = 3
 MAX_POLL_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 0.5
+INITIAL_DISCOVERY_RETRY_SECONDS = 2
+MAX_DISCOVERY_RETRY_SECONDS = 30
 
 
 class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
@@ -135,6 +137,41 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
                 return info
         return self._ble_service_info
 
+    async def _async_wait_for_initial_discovery(self) -> bool:
+        """Wait for HA Bluetooth discovery during the initial integration setup.
+
+        ESPHome Bluetooth proxies can take longer than Home Assistant itself to
+        become ready after a restart. Recheck discovery with bounded exponential
+        backoff instead of making a single early connection attempt.
+        """
+        if self._startup_delay_applied:
+            return self._find_ble_device() is not None
+
+        self._startup_delay_applied = True
+        if self._startup_delay_seconds <= 0:
+            return self._find_ble_device() is not None
+
+        deadline = self.hass.loop.time() + self._startup_delay_seconds
+        retry_delay = INITIAL_DISCOVERY_RETRY_SECONDS
+        while self._find_ble_device() is None:
+            remaining = deadline - self.hass.loop.time()
+            if remaining <= 0:
+                _LOGGER.warning(
+                    "in-lite hub was not discovered within %d seconds during startup",
+                    self._startup_delay_seconds,
+                )
+                return False
+
+            wait_time = min(retry_delay, remaining)
+            _LOGGER.debug(
+                "in-lite hub not discovered yet; retrying in %.1f seconds",
+                wait_time,
+            )
+            await asyncio.sleep(wait_time)
+            retry_delay = min(retry_delay * 2, MAX_DISCOVERY_RETRY_SECONDS)
+
+        return True
+
     async def _ensure_connected(self, hub: InliteHub) -> None:
         """Ensure the hub has an active BLE connection, reconnecting if needed."""
         if hub.is_connected:
@@ -194,17 +231,10 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         Connects once, queries all hubs, then schedules idle disconnect.
         Retries once per hub on failure (disconnect-reconnect between attempts).
         All operations are serialized under the BLE lock.
-        On the first refresh after integration load, applies the configured
-        startup delay (if any) before the initial _ensure_connected call.
+        On the first refresh after integration load, waits for Home Assistant's
+        Bluetooth discovery cache to contain the hub before connecting.
         """
-        # Apply startup delay only once: before the first _ensure_connected call
-        if not self._startup_delay_applied and self._startup_delay_seconds > 0:
-            _LOGGER.debug(
-                "Applying startup delay of %d seconds before first refresh",
-                self._startup_delay_seconds,
-            )
-            await asyncio.sleep(self._startup_delay_seconds)
-            self._startup_delay_applied = True
+        await self._async_wait_for_initial_discovery()
 
         async with self._ble_lock:
             self._cancel_idle_disconnect()

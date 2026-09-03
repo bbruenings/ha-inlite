@@ -109,16 +109,17 @@ disconnect-reconnect between attempts. If commands still fail:
 ### Slow Bluetooth discovery on startup
 
 If your hub takes time to appear in Bluetooth discovery (common with ESPHome
-proxies during HA startup), configure a **Startup Delay** in the integration
+proxies during HA startup), configure a **Startup Discovery Timeout** in the integration
 options:
 
 1. Go to **Settings** → **Devices & Services**
 2. Find your **in-lite** integration and click **Configure**
-3. Set **Startup Delay** (0–30 seconds) to give Bluetooth discovery time to populate
+3. Set **Startup Discovery Timeout** (0–600 seconds) to give Bluetooth discovery time to populate
 4. Click **Submit**
 
-This delay applies only once, before the first connection attempt after the
-integration loads.
+The integration checks discovery with increasing backoff during this window and
+connects as soon as the hub becomes available. The default is 120 seconds; set
+the value to 0 to disable the initial recovery window.
 
 ### Enable debug logging
 
