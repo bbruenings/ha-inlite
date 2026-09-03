@@ -41,5 +41,18 @@
             "already_configured": "Dieser Garten ist bereits eingerichtet.",
             "reauth_successful": "Erneute Authentifizierung erfolgreich."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "in-lite Optionen",
+                "description": "Konfiguriere das Abruf- und Verbindungsverhalten. Eine längere Leerlaufverbindung hält die Bluetooth-Verbindung für Echtzeit-Statusaktualisierungen aktiv, zum Beispiel bei Betätigung der physischen Taste am Hub.",
+                "data": {
+                    "scan_interval": "Abrufintervall (Sekunden)",
+                    "idle_disconnect": "Leerlauf-Trennzeit (Sekunden)",
+                    "startup_delay_seconds": "Start-Erkennungszeitlimit (Sekunden)"
+                }
+            }
+        }
     }
 }
