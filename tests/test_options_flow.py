@@ -3,9 +3,10 @@
 from types import SimpleNamespace
 
 import pytest
-import voluptuous as vol
 
 pytest.importorskip("homeassistant")
+
+import voluptuous as vol  # noqa: E402
 
 from custom_components.inlite.config_flow import InliteOptionsFlow  # noqa: E402
 from custom_components.inlite.const import (  # noqa: E402
