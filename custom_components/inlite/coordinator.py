@@ -34,7 +34,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 MAX_COMMAND_ATTEMPTS = 3
-MAX_POLL_ATTEMPTS = 2
+MAX_POLL_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 0.5
 
 
@@ -117,13 +117,17 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
             self.async_set_updated_data(all_states)
 
     def _find_ble_device(self) -> bluetooth.BluetoothServiceInfoBleak | None:
-        """Find the in-lite hub, preferring the cached reference."""
-        if self._ble_service_info is not None:
-            return self._ble_service_info
+        """Find the hub from current HA discovery, with callback fallback.
+
+        ESPHome proxy service info can be stale across an HA restart. Refresh
+        the lookup whenever a connection is needed, while retaining callback
+        info as a fallback until HA has populated its discovery cache.
+        """
         for info in bluetooth.async_discovered_service_info(self.hass, connectable=True):
             if info.name and info.name.lower() == BLE_LOCAL_NAME:
+                self._ble_service_info = info
                 return info
-        return None
+        return self._ble_service_info
 
     async def _ensure_connected(self, hub: InliteHub) -> None:
         """Ensure the hub has an active BLE connection, reconnecting if needed."""
@@ -205,8 +209,11 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
                             exc_info=err if last_attempt else None,
                         )
                         await hub.disconnect()
+                        # Do not retry a possibly stale proxy/service-info
+                        # pair. The next attempt must use HA's latest lookup.
+                        self._ble_service_info = None
                         if not last_attempt:
-                            await asyncio.sleep(RETRY_BACKOFF_SECONDS)
+                            await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
 
             self._schedule_idle_disconnect()
 
@@ -253,6 +260,9 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
                         attempt + 1, MAX_COMMAND_ATTEMPTS, device_id, output_id, err,
                     )
                     await hub.disconnect()
+                    # Force the next connection attempt through HA Bluetooth
+                    # discovery instead of reusing stale service information.
+                    self._ble_service_info = None
 
             # Backoff between retries (lock released so other operations can proceed)
             if attempt < MAX_COMMAND_ATTEMPTS - 1:
