@@ -1,6 +1,8 @@
 """Tests for inlite_ble hub module — ZoneState and notification safety."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from inlite_ble.hub import InliteHub, ZoneState
 from inlite_ble.protocol import OPCODE_GET_INFO_DEVICES, OPCODE_OOB_ALL_OUTLETS
@@ -65,6 +67,17 @@ class TestInliteHub:
     def test_zone_states_empty_initially(self) -> None:
         hub = InliteHub(device_id=1, passphrase="test")
         assert hub.zone_states == {}
+
+    def test_disconnect_calls_client_even_when_reported_disconnected(self) -> None:
+        """Shutdown still asks a remote proxy to release the hub connection."""
+        hub = InliteHub(device_id=1, passphrase="test")
+        client = SimpleNamespace(is_connected=False, disconnect=AsyncMock())
+        hub._client = client
+
+        run_async(hub.disconnect())
+
+        client.disconnect.assert_awaited_once_with()
+        assert hub._client is None
 
     def test_loop_stored_on_connect(self) -> None:
         """Verify _loop is set during connect (needed for thread-safe callbacks)."""

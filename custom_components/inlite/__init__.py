@@ -18,10 +18,14 @@ from homeassistant.components.bluetooth.match import BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import BLE_LOCAL_NAME, DOMAIN
+from .const import (
+    BLE_LOCAL_NAME,
+    CONFIG_ENTRY_VERSION,
+    CONF_IDLE_DISCONNECT,
+    DEFAULT_IDLE_DISCONNECT_SECONDS,
+    DOMAIN,
+)
 from .coordinator import InliteCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +33,29 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.LIGHT]
 
 type InliteConfigEntry = ConfigEntry[InliteCoordinator]
+
+LEGACY_CONF_STARTUP_DELAY = "startup_delay_seconds"
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: InliteConfigEntry
+) -> bool:
+    """Migrate legacy startup retry and persistent-connection defaults."""
+    if entry.version >= CONFIG_ENTRY_VERSION:
+        return True
+
+    options = dict(entry.options)
+    options.pop(LEGACY_CONF_STARTUP_DELAY, None)
+    # Beta 3 saved a one-hour connection retention whenever its options form
+    # was submitted. Reset it so existing installations receive Beta 4's
+    # restart-safe behavior; users can explicitly opt back in afterward.
+    options[CONF_IDLE_DISCONNECT] = DEFAULT_IDLE_DISCONNECT_SECONDS
+    hass.config_entries.async_update_entry(
+        entry,
+        options=options,
+        version=CONFIG_ENTRY_VERSION,
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bool:
@@ -46,24 +73,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
         """Update the cached BLE device from advertisement data."""
         coordinator.update_ble_service_info(service_info)
 
+    matcher = (
+        BluetoothCallbackMatcher(address=coordinator.ble_address)
+        if coordinator.ble_address is not None
+        else BluetoothCallbackMatcher(local_name=BLE_LOCAL_NAME)
+    )
     entry.async_on_unload(
         bluetooth.async_register_callback(
             hass,
             _async_update_ble,
-            BluetoothCallbackMatcher(local_name=BLE_LOCAL_NAME),
+            matcher,
             BluetoothScanningMode.PASSIVE,
         )
     )
-
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except UpdateFailed as err:
-        raise ConfigEntryNotReady("Hub not reachable") from err
-
-    entry.runtime_data = coordinator
-
-    # Disconnect hubs when the config entry is unloaded
-    entry.async_on_unload(coordinator.async_shutdown)
 
     # Also disconnect as early as possible on HA shutdown (e.g. a Core update).
     # Config-entry unload isn't guaranteed to run to completion before the
@@ -75,6 +97,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_handle_hass_stop)
     )
+
+    # DataUpdateCoordinator turns a failed first refresh into ConfigEntryNotReady,
+    # allowing Home Assistant (and a later Bluetooth discovery) to retry setup.
+    await coordinator.async_config_entry_first_refresh()
+
+    entry.runtime_data = coordinator
 
     # Reload integration when options change (scan interval, idle disconnect)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))

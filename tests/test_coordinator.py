@@ -1,23 +1,23 @@
-"""Tests for coordinator Bluetooth discovery recovery."""
+"""Tests for coordinator Bluetooth lifecycle recovery."""
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 
 pytest.importorskip("homeassistant")
 pytest.importorskip("bleak_retry_connector")
 
 from custom_components.inlite.coordinator import InliteCoordinator  # noqa: E402
-from custom_components.inlite.const import (
-    CONF_STARTUP_DELAY,
-    DEFAULT_STARTUP_DELAY_SECONDS,
+from homeassistant.helpers.update_coordinator import (  # noqa: E402
+    DataUpdateCoordinator,
+    UpdateFailed,
 )
-from homeassistant.helpers.update_coordinator import UpdateFailed  # noqa: E402
 
 
 class ServiceInfo:
-    """Small service-info stand-in for the discovery tests."""
+    """Small service-info stand-in for Bluetooth tests."""
 
     def __init__(self, name: str, address: str) -> None:
         self.name = name
@@ -25,38 +25,21 @@ class ServiceInfo:
         self.device = object()
 
 
-class Clock:
-    """Controllable event-loop clock for discovery recovery tests."""
-
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def time(self) -> float:
-        """Return the current simulated monotonic time."""
-        return self.now
-
-
-class HassWithClock:
-    """Minimal Home Assistant stand-in that provides an event loop clock."""
-
-    def __init__(self, clock: Clock) -> None:
-        self.loop = clock
-
-
 class TestInliteCoordinatorBluetooth:
     """Tests for current service info selection."""
 
-    def test_find_refreshes_cached_service_info(self, monkeypatch) -> None:
-        """A reconnect uses newly discovered proxy information."""
+    def test_find_refreshes_configured_address_route(self, monkeypatch) -> None:
+        """A reconnect asks Home Assistant for the current proxy route."""
         coordinator = object.__new__(InliteCoordinator)
         coordinator.hass = object()
-        stale = ServiceInfo("inlitebt", "stale")
-        current = ServiceInfo("inlitebt", "current")
+        coordinator._ble_address = "hub-address"
+        stale = ServiceInfo("inlitebt", "hub-address")
+        current = ServiceInfo("inlitebt", "hub-address")
         coordinator._ble_service_info = stale
 
         monkeypatch.setattr(
-            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            lambda hass, connectable: [current],
+            "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
+            lambda hass, address, connectable: current,
         )
 
         assert coordinator._find_ble_device() is current
@@ -65,131 +48,113 @@ class TestInliteCoordinatorBluetooth:
     def test_find_falls_back_to_callback_info_until_discovery_catches_up(
         self, monkeypatch
     ) -> None:
-        """A callback result remains usable while HA discovery is still empty."""
+        """A matching callback result remains usable while discovery catches up."""
         coordinator = object.__new__(InliteCoordinator)
         coordinator.hass = object()
-        callback_info = ServiceInfo("inlitebt", "proxy")
+        coordinator._ble_address = "hub-address"
+        callback_info = ServiceInfo("inlitebt", "hub-address")
         coordinator._ble_service_info = callback_info
 
         monkeypatch.setattr(
-            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            lambda hass, connectable: [],
+            "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
+            lambda hass, address, connectable: None,
         )
 
         assert coordinator._find_ble_device() is callback_info
 
-
-class TestInliteCoordinatorStartupDiscovery:
-    """Tests for initial Bluetooth discovery recovery."""
-
-    @pytest.mark.asyncio
-    async def test_initial_discovery_retries_until_hub_appears(self, monkeypatch) -> None:
-        """Startup recovery polls discovery until a proxy reports the hub."""
+    def test_legacy_entry_learns_address_from_local_name(self, monkeypatch) -> None:
+        """An entry created before address persistence learns the hub address."""
         coordinator = object.__new__(InliteCoordinator)
-        clock = Clock()
-        coordinator.hass = HassWithClock(clock)
-        coordinator._startup_delay_seconds = 5
-        coordinator._startup_delay_applied = False
+        update_entry = Mock()
+        coordinator.hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_update_entry=update_entry)
+        )
+        coordinator.entry = SimpleNamespace(data={})
+        coordinator._ble_address = None
         coordinator._ble_service_info = None
-        current = ServiceInfo("inlitebt", "current")
-        discovery_calls = 0
-
-        def discovered(hass, connectable):
-            nonlocal discovery_calls
-            discovery_calls += 1
-            return [] if discovery_calls < 3 else [current]
+        current = ServiceInfo("inlitebt", "hub-address")
 
         monkeypatch.setattr(
             "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            discovered,
+            lambda hass, connectable: [current],
         )
 
-        sleep_times = []
+        assert coordinator._find_ble_device() is current
+        assert coordinator._ble_address == "hub-address"
+        update_entry.assert_called_once_with(
+            coordinator.entry,
+            data={"ble_address": "hub-address"},
+        )
 
-        async def capture_sleep(delay):
-            sleep_times.append(delay)
-            clock.now += delay
+    def test_callback_ignores_a_different_configured_hub(self) -> None:
+        """Advertisements for another hub do not replace the configured route."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator._ble_address = "configured"
+        coordinator.entry = SimpleNamespace(data={"ble_address": "configured"})
+        coordinator.hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_update_entry=Mock())
+        )
+        configured = ServiceInfo("inlitebt", "configured")
+        coordinator._ble_service_info = configured
 
-        monkeypatch.setattr("asyncio.sleep", capture_sleep)
+        coordinator.update_ble_service_info(ServiceInfo("inlitebt", "other"))
 
-        assert await coordinator._async_wait_for_initial_discovery() is True
-        assert sleep_times == [2, 3]
-        assert coordinator._startup_delay_applied is True
-        assert coordinator._ble_service_info is current
+        assert coordinator._ble_service_info is configured
+
+
+class TestInliteCoordinatorLifecycle:
+    """Tests for setup and shutdown behavior."""
 
     @pytest.mark.asyncio
-    async def test_initial_discovery_stops_when_timeout_expires(self, monkeypatch) -> None:
-        """Startup recovery is bounded by the configured timeout."""
+    async def test_missing_discovery_fails_without_sleeping(self, monkeypatch) -> None:
+        """Initial setup delegates retries to Home Assistant without blocking."""
         coordinator = object.__new__(InliteCoordinator)
-        clock = Clock()
-        coordinator.hass = HassWithClock(clock)
-        coordinator._startup_delay_seconds = 5
-        coordinator._startup_delay_applied = False
-        coordinator._ble_service_info = None
+        coordinator._stopping = False
+        coordinator._available = True
+        coordinator._find_ble_device = lambda: None
+        sleep = AsyncMock()
+        monkeypatch.setattr("asyncio.sleep", sleep)
 
-        monkeypatch.setattr(
-            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            lambda hass, connectable: [],
-        )
-
-        sleep_times = []
-
-        async def capture_sleep(delay):
-            sleep_times.append(delay)
-            clock.now += delay
-
-        monkeypatch.setattr("asyncio.sleep", capture_sleep)
-
-        assert await coordinator._async_wait_for_initial_discovery() is False
-        assert sleep_times == [2, 3]
-        assert coordinator._startup_delay_applied is True
-
-    @pytest.mark.asyncio
-    async def test_initial_discovery_timeout_causes_update_failure(self, monkeypatch) -> None:
-        """An unavailable proxy leaves setup retryable after the bounded wait."""
-        coordinator = object.__new__(InliteCoordinator)
-        clock = Clock()
-        coordinator.hass = HassWithClock(clock)
-        coordinator._startup_delay_seconds = 5
-        coordinator._startup_delay_applied = False
-        coordinator._ble_service_info = None
-        coordinator._ble_lock = asyncio.Lock()
-        coordinator._hubs = {1: SimpleNamespace(disconnect=AsyncMock())}
-        coordinator._available = False
-        coordinator._cancel_idle_disconnect = lambda: None
-        coordinator._schedule_idle_disconnect = lambda: None
-
-        monkeypatch.setattr(
-            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            lambda hass, connectable: [],
-        )
-
-        async def capture_sleep(delay):
-            clock.now += delay
-
-        async def cannot_connect(hub):
-            raise ConnectionError("in-lite hub not found in bluetooth scanner")
-
-        monkeypatch.setattr("asyncio.sleep", capture_sleep)
-        coordinator._ensure_connected = cannot_connect
-
-        with pytest.raises(UpdateFailed, match="Could not connect to any hub"):
+        with pytest.raises(UpdateFailed, match="not discovered"):
             await coordinator._async_update_data()
 
+        sleep.assert_not_awaited()
+        assert coordinator._available is False
+
     @pytest.mark.asyncio
-    async def test_initial_discovery_is_skipped_when_disabled(self, monkeypatch) -> None:
-        """A timeout of zero preserves the opt-out behavior."""
+    async def test_shutdown_cancels_active_ble_work_before_disconnect(
+        self, monkeypatch
+    ) -> None:
+        """Shutdown cannot wait indefinitely behind an active BLE operation."""
         coordinator = object.__new__(InliteCoordinator)
-        clock = Clock()
-        coordinator.hass = HassWithClock(clock)
-        coordinator._startup_delay_seconds = 0
-        coordinator._startup_delay_applied = False
-        coordinator._ble_service_info = None
+        coordinator._stopping = False
+        coordinator._shutdown_complete = False
+        coordinator._active_ble_task = None
+        coordinator._ble_lock = asyncio.Lock()
+        coordinator._shutdown_lock = asyncio.Lock()
+        coordinator._disconnect_timer = None
+        hub = SimpleNamespace(disconnect=AsyncMock())
+        coordinator._hubs = {1: hub}
+        base_shutdown = AsyncMock()
+        monkeypatch.setattr(DataUpdateCoordinator, "async_shutdown", base_shutdown)
 
-        monkeypatch.setattr(
-            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
-            lambda hass, connectable: [],
-        )
+        operation_started = asyncio.Event()
 
-        assert await coordinator._async_wait_for_initial_discovery() is False
-        assert coordinator._startup_delay_applied is True
+        async def blocked_operation() -> None:
+            async with coordinator._ble_lock:
+                coordinator._active_ble_task = asyncio.current_task()
+                operation_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    coordinator._active_ble_task = None
+
+        operation = asyncio.create_task(blocked_operation())
+        await operation_started.wait()
+
+        await coordinator.async_shutdown()
+
+        assert operation.cancelled()
+        base_shutdown.assert_awaited_once_with()
+        hub.disconnect.assert_awaited_once_with()
+        assert coordinator._shutdown_complete is True

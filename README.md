@@ -23,7 +23,7 @@ Energy (BLE) mesh using the CSRmesh protocol.
 - ☁️ One-time cloud login for initial pairing (retrieves encryption keys)
 - 🔄 Automatic BLE discovery of the in-lite hub
 - 🔁 Reliable command delivery with retry and reconnect logic
-- 🔌 Persistent BLE connection with idle disconnect to save resources
+- 🔌 Restart-safe BLE connection handling with optional connection retention
 
 ## Requirements
 
@@ -106,20 +106,30 @@ disconnect-reconnect between attempts. If commands still fail:
 - Consider using an [ESPHome Bluetooth Proxy](https://esphome.github.io/bluetooth-proxies/) positioned near the hub
 - Check Home Assistant logs for BLE connection errors
 
-### Slow Bluetooth discovery on startup
+### Connection behavior and Home Assistant restarts
 
-If your hub takes time to appear in Bluetooth discovery (common with ESPHome
-proxies during HA startup), configure a **Startup Discovery Timeout** in the integration
-options:
+The integration disconnects from the hub after each operation by default. This
+prevents the hub's single Bluetooth connection slot from remaining occupied when
+Home Assistant or an ESPHome Bluetooth Proxy restarts.
+
+Home Assistant automatically retries setup when the proxy or hub becomes
+available again; no startup delay needs to be configured.
+
+When upgrading from `0.3.0-beta.3`, the obsolete startup timeout is removed and
+connection retention is reset to `0` so existing installations receive the
+restart-safe behavior.
+
+To keep the BLE connection open for real-time physical-button updates:
 
 1. Go to **Settings** → **Devices & Services**
 2. Find your **in-lite** integration and click **Configure**
-3. Set **Startup Discovery Timeout** (0–600 seconds) to give Bluetooth discovery time to populate
+3. Increase **Connection retention after activity**
 4. Click **Submit**
 
-The integration checks discovery with increasing backoff during this window and
-connects as soon as the hub becomes available. The default is 120 seconds; set
-the value to 0 to disable the initial recovery window.
+Keeping the connection open provides immediate out-of-band updates but increases
+the chance that an abrupt host or proxy restart leaves older hub firmware waiting
+for a stale connection. With the default value `0`, physical changes are reflected
+on the next poll instead.
 
 ### Enable debug logging
 

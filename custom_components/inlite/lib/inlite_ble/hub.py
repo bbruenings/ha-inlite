@@ -175,8 +175,10 @@ class InliteHub:
         """Disconnect from the hub."""
         if self._client:
             try:
-                if self._client.is_connected:
-                    await self._client.disconnect()
+                # Disconnect unconditionally. During Home Assistant shutdown a
+                # remote proxy can report is_connected=False before it has sent
+                # the GATT disconnect to the hub.
+                await self._client.disconnect()
             except Exception as err:
                 _LOGGER.debug("Disconnect error (ignoring): %s", err)
             finally:
@@ -498,4 +500,3 @@ class InliteHub:
         """Send a discovery broadcast (also serves as keepalive)."""
         data = build_discovery_payload()
         await self._write_mesh(0x0000, PKT_BLOCK_DATA_BLK, data)
-
