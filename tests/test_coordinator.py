@@ -19,9 +19,10 @@ from homeassistant.helpers.update_coordinator import (  # noqa: E402
 class ServiceInfo:
     """Small service-info stand-in for Bluetooth tests."""
 
-    def __init__(self, name: str, address: str) -> None:
+    def __init__(self, name: str, address: str, rssi: int = -60) -> None:
         self.name = name
         self.address = address
+        self.rssi = rssi
         self.device = object()
 
 
@@ -44,6 +45,7 @@ class TestInliteCoordinatorBluetooth:
 
         assert coordinator._find_ble_device() is current
         assert coordinator._ble_service_info is current
+        assert coordinator.rssi == -60
 
     def test_find_falls_back_to_callback_info_until_discovery_catches_up(
         self, monkeypatch
@@ -90,6 +92,7 @@ class TestInliteCoordinatorBluetooth:
         """Advertisements for another hub do not replace the configured route."""
         coordinator = object.__new__(InliteCoordinator)
         coordinator._ble_address = "configured"
+        coordinator._rssi = -55
         coordinator.entry = SimpleNamespace(data={"ble_address": "configured"})
         coordinator.hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_update_entry=Mock())
@@ -97,9 +100,36 @@ class TestInliteCoordinatorBluetooth:
         configured = ServiceInfo("inlitebt", "configured")
         coordinator._ble_service_info = configured
 
-        coordinator.update_ble_service_info(ServiceInfo("inlitebt", "other"))
+        coordinator.update_ble_service_info(
+            ServiceInfo("inlitebt", "other", rssi=-90)
+        )
 
         assert coordinator._ble_service_info is configured
+        assert coordinator.rssi == -55
+
+    def test_callback_caches_rssi_for_configured_hub(self) -> None:
+        """A matching advertisement updates the diagnostic RSSI value."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator._ble_address = "configured"
+        coordinator._rssi = None
+        coordinator.entry = SimpleNamespace(data={"ble_address": "configured"})
+        coordinator.hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_update_entry=Mock())
+        )
+
+        current = ServiceInfo("inlitebt", "configured", rssi=-72)
+        coordinator.update_ble_service_info(current)
+
+        assert coordinator._ble_service_info is current
+        assert coordinator.rssi == -72
+
+    def test_route_reset_does_not_erase_last_rssi(self) -> None:
+        """Connection retries retain signal data for troubleshooting."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator._rssi = -68
+        coordinator._ble_service_info = None
+
+        assert coordinator.rssi == -68
 
 
 class TestInliteCoordinatorLifecycle:

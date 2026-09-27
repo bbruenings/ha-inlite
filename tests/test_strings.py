@@ -23,3 +23,20 @@ def test_connection_retention_has_a_translated_label() -> None:
             "startup_delay_seconds"
             not in strings["options"]["step"]["init"]["data"]
         )
+
+
+def test_bluetooth_signal_strength_has_a_translated_name() -> None:
+    """The diagnostic RSSI sensor has English and German names."""
+    component_path = Path(__file__).parents[1] / "custom_components/inlite"
+    expected_names = {
+        "strings.json": "Bluetooth signal strength",
+        "translations/en.json": "Bluetooth signal strength",
+        "translations/de.json": "Bluetooth-Signalstärke",
+    }
+
+    for filename, expected_name in expected_names.items():
+        strings = json.loads((component_path / filename).read_text())
+        assert (
+            strings["entity"]["sensor"]["bluetooth_signal_strength"]["name"]
+            == expected_name
+        )

@@ -7,7 +7,10 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
-from custom_components.inlite import async_migrate_entry  # noqa: E402
+from custom_components.inlite import (  # noqa: E402
+    _remove_legacy_gateway_device,
+    async_migrate_entry,
+)
 from custom_components.inlite.const import (  # noqa: E402
     CONF_IDLE_DISCONNECT,
     DEFAULT_IDLE_DISCONNECT_SECONDS,
@@ -40,3 +43,38 @@ async def test_migration_removes_startup_delay_and_resets_retention() -> None:
         },
         version=2,
     )
+
+
+def test_removes_obsolete_standalone_gateway_device(monkeypatch) -> None:
+    """The old RSSI-only device is removed after the sensor moves to the hub."""
+    device_registry = Mock()
+    device_registry.async_get_device.return_value = SimpleNamespace(
+        id="legacy-gateway-device"
+    )
+    monkeypatch.setattr(
+        "custom_components.inlite.dr.async_get",
+        lambda hass: device_registry,
+    )
+
+    _remove_legacy_gateway_device(object(), "garden-1")
+
+    device_registry.async_get_device.assert_called_once_with(
+        identifiers={("inlite", "garden-1_bluetooth_gateway")}
+    )
+    device_registry.async_remove_device.assert_called_once_with(
+        "legacy-gateway-device"
+    )
+
+
+def test_legacy_gateway_cleanup_is_idempotent(monkeypatch) -> None:
+    """Setup succeeds when the obsolete gateway device is already absent."""
+    device_registry = Mock()
+    device_registry.async_get_device.return_value = None
+    monkeypatch.setattr(
+        "custom_components.inlite.dr.async_get",
+        lambda hass: device_registry,
+    )
+
+    _remove_legacy_gateway_device(object(), "garden-1")
+
+    device_registry.async_remove_device.assert_not_called()

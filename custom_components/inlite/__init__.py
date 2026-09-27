@@ -18,10 +18,12 @@ from homeassistant.components.bluetooth.match import BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     BLE_LOCAL_NAME,
     CONFIG_ENTRY_VERSION,
+    CONF_GARDEN_ID,
     CONF_IDLE_DISCONNECT,
     DEFAULT_IDLE_DISCONNECT_SECONDS,
     DOMAIN,
@@ -30,11 +32,25 @@ from .coordinator import InliteCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.LIGHT]
+PLATFORMS = [Platform.LIGHT, Platform.SENSOR]
 
 type InliteConfigEntry = ConfigEntry[InliteCoordinator]
 
 LEGACY_CONF_STARTUP_DELAY = "startup_delay_seconds"
+
+
+@callback
+def _remove_legacy_gateway_device(hass: HomeAssistant, garden_id: str) -> None:
+    """Remove the obsolete standalone Bluetooth gateway device."""
+    device_registry = dr.async_get(hass)
+    legacy_device = device_registry.async_get_device(
+        identifiers={(DOMAIN, f"{garden_id}_bluetooth_gateway")}
+    )
+    if legacy_device is None:
+        return
+
+    device_registry.async_remove_device(legacy_device.id)
+    _LOGGER.debug("Removed obsolete standalone Bluetooth gateway device")
 
 
 async def async_migrate_entry(
@@ -108,6 +124,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # The initial RSSI implementation created a separate gateway device. The
+    # sensor now belongs to the existing hub, so remove that persisted orphan
+    # after entity setup has reassigned the sensor in the entity registry.
+    _remove_legacy_gateway_device(hass, entry.data[CONF_GARDEN_ID])
     return True
 
 

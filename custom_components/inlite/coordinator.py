@@ -74,6 +74,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         self._disconnect_timer: asyncio.TimerHandle | None = None
         self._ble_service_info: bluetooth.BluetoothServiceInfoBleak | None = None
         self._ble_address: str | None = entry.data.get(CONF_BLE_ADDRESS)
+        self._rssi: int | None = None
         self._idle_disconnect_seconds = entry.options.get(
             CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
         )
@@ -101,6 +102,11 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         """Return the configured Bluetooth transport address, if known."""
         return self._ble_address
 
+    @property
+    def rssi(self) -> int | None:
+        """Return the most recently observed Bluetooth signal strength."""
+        return self._rssi
+
     def update_ble_service_info(
         self, service_info: bluetooth.BluetoothServiceInfoBleak
     ) -> None:
@@ -112,8 +118,16 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         """
         if self._ble_address is not None and service_info.address != self._ble_address:
             return
-        self._set_ble_address(service_info.address)
+        self._cache_ble_service_info(service_info)
+
+    def _cache_ble_service_info(
+        self, service_info: bluetooth.BluetoothServiceInfoBleak
+    ) -> None:
+        """Cache the current route and its advertisement signal strength."""
+        if self._ble_address != service_info.address:
+            self._set_ble_address(service_info.address)
         self._ble_service_info = service_info
+        self._rssi = service_info.rssi
 
     def _set_ble_address(self, address: str) -> None:
         """Remember a discovered address and migrate legacy entries in place."""
@@ -154,7 +168,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
             if info := bluetooth.async_last_service_info(
                 self.hass, self._ble_address, connectable=True
             ):
-                self._ble_service_info = info
+                self._cache_ble_service_info(info)
                 return info
             if (
                 self._ble_service_info is not None
@@ -167,8 +181,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
             self.hass, connectable=True
         ):
             if info.name and info.name.lower() == BLE_LOCAL_NAME:
-                self._set_ble_address(info.address)
-                self._ble_service_info = info
+                self._cache_ble_service_info(info)
                 return info
         return self._ble_service_info
 

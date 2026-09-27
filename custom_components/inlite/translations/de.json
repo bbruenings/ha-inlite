@@ -53,5 +53,12 @@
                 }
             }
         }
+    },
+    "entity": {
+        "sensor": {
+            "bluetooth_signal_strength": {
+                "name": "Bluetooth-Signalstärke"
+            }
+        }
     }
 }
