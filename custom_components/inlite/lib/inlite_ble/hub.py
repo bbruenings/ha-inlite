@@ -60,7 +60,7 @@ class ZoneState:
 
     @property
     def is_on(self) -> bool:
-        return (self.output_mode & 0x01) != 0
+        return self.output_state != 0
 
     def __repr__(self) -> str:
         return "ZoneState(id=%d, %s, mode=0x%02X, state=0x%02X)" % (
@@ -479,8 +479,10 @@ class InliteHub:
             zs = self._zone_states[output_id]
             if on:
                 zs.output_mode = zs.output_mode | 0x01
+                zs.output_state = zs.output_state | 0x01
             else:
                 zs.output_mode = zs.output_mode & ~0x01
+                zs.output_state = 0
 
         return success
 

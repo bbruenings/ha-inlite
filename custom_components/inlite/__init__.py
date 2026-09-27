@@ -16,8 +16,8 @@ from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.components.bluetooth.match import BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -64,6 +64,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
 
     # Disconnect hubs when the config entry is unloaded
     entry.async_on_unload(coordinator.async_shutdown)
+
+    # Also disconnect as early as possible on HA shutdown (e.g. a Core update).
+    # Config-entry unload isn't guaranteed to run to completion before the
+    # process is killed, and an unclean BLE disconnect can leave the hub's
+    # single connection slot stuck until it's power-cycled.
+    async def _async_handle_hass_stop(event: Event) -> None:
+        await coordinator.async_shutdown()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_handle_hass_stop)
+    )
 
     # Reload integration when options change (scan interval, idle disconnect)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))

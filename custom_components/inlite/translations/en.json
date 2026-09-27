@@ -41,5 +41,18 @@
             "already_configured": "This garden is already configured.",
             "reauth_successful": "Re-authentication successful."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "in-lite Options",
+                "description": "Configure polling and connection behavior. A longer idle disconnect keeps the BLE connection alive to receive real-time state updates from the hub (for example, physical button presses).",
+                "data": {
+                    "scan_interval": "Poll interval (seconds)",
+                    "idle_disconnect": "Idle disconnect timeout (seconds)",
+                    "startup_delay_seconds": "Startup discovery timeout (seconds)"
+                }
+            }
+        }
     }
 }
