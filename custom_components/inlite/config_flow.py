@@ -33,6 +33,8 @@ from inlite_ble.cloud import (
 )
 
 from .const import (
+    CONFIG_ENTRY_VERSION,
+    CONF_BLE_ADDRESS,
     CONF_GARDEN_ID,
     CONF_GARDEN_NAME,
     CONF_IDLE_DISCONNECT,
@@ -54,7 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the in-lite config flow."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
 
     def __init__(self) -> None:
         """Initialize."""
@@ -77,13 +79,19 @@ class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> ConfigFlowResult:
         """Handle Bluetooth discovery of an in-lite hub."""
+        # A garden is the stable config-entry identity, while the BLE address is
+        # the transport identity. Associate later Bluetooth discoveries with the
+        # existing garden entry so Home Assistant can immediately retry an entry
+        # in SETUP_RETRY when its hub becomes visible again.
+        if current_entries := self._async_current_entries():
+            entry = current_entries[0]
+            await self.async_set_unique_id(entry.unique_id)
+            self._abort_if_unique_id_configured(
+                updates={CONF_BLE_ADDRESS: discovery_info.address}
+            )
+
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
-
-        # The BLE device is a shared gateway — if ANY inlite entry exists,
-        # the gateway is already in use. Abort to suppress repeated discovery.
-        if self._async_current_entries():
-            return self.async_abort(reason="already_configured")
 
         self._discovery_info = discovery_info
         return await self.async_step_bluetooth_confirm()
@@ -207,6 +215,13 @@ class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: garden.password,
             CONF_TRANSFORMERS: transformers,
         }
+        if self._discovery_info is not None:
+            data[CONF_BLE_ADDRESS] = self._discovery_info.address
+        elif (
+            self._reauth_entry is not None
+            and CONF_BLE_ADDRESS in self._reauth_entry.data
+        ):
+            data[CONF_BLE_ADDRESS] = self._reauth_entry.data[CONF_BLE_ADDRESS]
 
         # If this is a reauth, update the existing entry
         if self._reauth_entry is not None:
@@ -268,7 +283,6 @@ class InliteOptionsFlow(OptionsFlow):
         current_idle = self._config_entry.options.get(
             CONF_IDLE_DISCONNECT, DEFAULT_IDLE_DISCONNECT_SECONDS
         )
-
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(

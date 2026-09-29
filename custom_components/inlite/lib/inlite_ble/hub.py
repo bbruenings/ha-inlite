@@ -60,7 +60,7 @@ class ZoneState:
 
     @property
     def is_on(self) -> bool:
-        return (self.output_mode & 0x01) != 0
+        return self.output_state != 0
 
     def __repr__(self) -> str:
         return "ZoneState(id=%d, %s, mode=0x%02X, state=0x%02X)" % (
@@ -175,8 +175,10 @@ class InliteHub:
         """Disconnect from the hub."""
         if self._client:
             try:
-                if self._client.is_connected:
-                    await self._client.disconnect()
+                # Disconnect unconditionally. During Home Assistant shutdown a
+                # remote proxy can report is_connected=False before it has sent
+                # the GATT disconnect to the hub.
+                await self._client.disconnect()
             except Exception as err:
                 _LOGGER.debug("Disconnect error (ignoring): %s", err)
             finally:
@@ -479,8 +481,10 @@ class InliteHub:
             zs = self._zone_states[output_id]
             if on:
                 zs.output_mode = zs.output_mode | 0x01
+                zs.output_state = zs.output_state | 0x01
             else:
                 zs.output_mode = zs.output_mode & ~0x01
+                zs.output_state = 0
 
         return success
 
@@ -496,4 +500,3 @@ class InliteHub:
         """Send a discovery broadcast (also serves as keepalive)."""
         data = build_discovery_payload()
         await self._write_mesh(0x0000, PKT_BLOCK_DATA_BLK, data)
-

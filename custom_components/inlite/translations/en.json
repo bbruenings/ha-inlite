@@ -41,5 +41,24 @@
             "already_configured": "This garden is already configured.",
             "reauth_successful": "Re-authentication successful."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "in-lite Options",
+                "description": "Configure polling and connection behavior. The default connection retention of 0 disconnects after each operation for reliable Home Assistant restarts. Increase it to keep the BLE connection alive for real-time physical-button updates.",
+                "data": {
+                    "scan_interval": "Poll interval (seconds)",
+                    "idle_disconnect": "Connection retention after activity (seconds)"
+                }
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "bluetooth_signal_strength": {
+                "name": "Bluetooth signal strength"
+            }
+        }
     }
 }

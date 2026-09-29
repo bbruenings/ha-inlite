@@ -4,6 +4,11 @@
             "zone": {
                 "default": "mdi:outdoor-lamp"
             }
+        },
+        "sensor": {
+            "bluetooth_signal_strength": {
+                "default": "mdi:signal"
+            }
         }
     }
 }

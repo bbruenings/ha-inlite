@@ -23,7 +23,8 @@ Energy (BLE) mesh using the CSRmesh protocol.
 - ☁️ One-time cloud login for initial pairing (retrieves encryption keys)
 - 🔄 Automatic BLE discovery of the in-lite hub
 - 🔁 Reliable command delivery with retry and reconnect logic
-- 🔌 Persistent BLE connection with idle disconnect to save resources
+- 🔌 Restart-safe BLE connection handling with optional connection retention
+- 📶 Bluetooth signal-strength diagnostics for connection troubleshooting
 
 ## Requirements
 
@@ -89,6 +90,11 @@ will automatically discover it and prompt you to set it up.
 For each transformer zone, the integration creates a **Light** entity:
 - `light.inlite_<hub_name>_zone_<N>` — supports on/off control
 
+The integration also adds one **Bluetooth signal strength** diagnostic sensor to
+the hub device. The sensor reports the Bluetooth RSSI in dBm. It is disabled by
+default to avoid recording frequent diagnostic state changes; enable it from the
+hub's entity list when troubleshooting connectivity.
+
 ## Troubleshooting
 
 ### Hub not discovered
@@ -105,6 +111,36 @@ disconnect-reconnect between attempts. If commands still fail:
 - Move the Bluetooth adapter closer to the hub
 - Consider using an [ESPHome Bluetooth Proxy](https://esphome.github.io/bluetooth-proxies/) positioned near the hub
 - Check Home Assistant logs for BLE connection errors
+
+The disabled-by-default **Bluetooth signal strength** diagnostic sensor can help
+distinguish radio-range problems from protocol or connection errors. Values closer
+to zero indicate a stronger signal; compare readings over time and from different
+Bluetooth adapter or ESPHome proxy locations rather than relying on a fixed cutoff.
+
+### Connection behavior and Home Assistant restarts
+
+The integration disconnects from the hub after each operation by default. This
+prevents the hub's single Bluetooth connection slot from remaining occupied when
+Home Assistant or an ESPHome Bluetooth Proxy restarts.
+
+Home Assistant automatically retries setup when the proxy or hub becomes
+available again; no startup delay needs to be configured.
+
+When upgrading from `0.3.0-beta.3`, the obsolete startup timeout is removed and
+connection retention is reset to `0` so existing installations receive the
+restart-safe behavior.
+
+To keep the BLE connection open for real-time physical-button updates:
+
+1. Go to **Settings** → **Devices & Services**
+2. Find your **in-lite** integration and click **Configure**
+3. Increase **Connection retention after activity**
+4. Click **Submit**
+
+Keeping the connection open provides immediate out-of-band updates but increases
+the chance that an abrupt host or proxy restart leaves older hub firmware waiting
+for a stale connection. With the default value `0`, physical changes are reflected
+on the next poll instead.
 
 ### Enable debug logging
 

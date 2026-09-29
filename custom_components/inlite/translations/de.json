@@ -41,5 +41,24 @@
             "already_configured": "Dieser Garten ist bereits eingerichtet.",
             "reauth_successful": "Erneute Authentifizierung erfolgreich."
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "in-lite Optionen",
+                "description": "Konfiguriere das Abruf- und Verbindungsverhalten. Der Standardwert 0 trennt die Verbindung nach jedem Vorgang und ermöglicht zuverlässige Home-Assistant-Neustarts. Erhöhe den Wert für Echtzeitaktualisierungen über die physische Taste.",
+                "data": {
+                    "scan_interval": "Abrufintervall (Sekunden)",
+                    "idle_disconnect": "Verbindung nach Aktivität halten (Sekunden)"
+                }
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "bluetooth_signal_strength": {
+                "name": "Bluetooth-Signalstärke"
+            }
+        }
     }
 }
