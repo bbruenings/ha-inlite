@@ -34,6 +34,7 @@ class TestInliteCoordinatorBluetooth:
         coordinator = object.__new__(InliteCoordinator)
         coordinator.hass = object()
         coordinator._ble_address = "hub-address"
+        coordinator._ble_candidates = {}
         stale = ServiceInfo("inlitebt", "hub-address")
         current = ServiceInfo("inlitebt", "hub-address")
         coordinator._ble_service_info = stale
@@ -41,6 +42,10 @@ class TestInliteCoordinatorBluetooth:
         monkeypatch.setattr(
             "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
             lambda hass, address, connectable: current,
+        )
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
+            lambda hass, connectable: [],
         )
 
         assert coordinator._find_ble_device() is current
@@ -54,6 +59,7 @@ class TestInliteCoordinatorBluetooth:
         coordinator = object.__new__(InliteCoordinator)
         coordinator.hass = object()
         coordinator._ble_address = "hub-address"
+        coordinator._ble_candidates = {}
         callback_info = ServiceInfo("inlitebt", "hub-address")
         coordinator._ble_service_info = callback_info
 
@@ -61,11 +67,17 @@ class TestInliteCoordinatorBluetooth:
             "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
             lambda hass, address, connectable: None,
         )
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
+            lambda hass, connectable: [],
+        )
 
         assert coordinator._find_ble_device() is callback_info
 
-    def test_legacy_entry_learns_address_from_local_name(self, monkeypatch) -> None:
-        """An entry created before address persistence learns the hub address."""
+    def test_legacy_entry_selects_but_does_not_persist_unverified_address(
+        self, monkeypatch
+    ) -> None:
+        """Discovery alone cannot prove that a gateway belongs to the garden."""
         coordinator = object.__new__(InliteCoordinator)
         update_entry = Mock()
         coordinator.hass = SimpleNamespace(
@@ -73,7 +85,9 @@ class TestInliteCoordinatorBluetooth:
         )
         coordinator.entry = SimpleNamespace(data={})
         coordinator._ble_address = None
+        coordinator._ble_candidates = {}
         coordinator._ble_service_info = None
+        coordinator._rssi = None
         current = ServiceInfo("inlitebt", "hub-address")
 
         monkeypatch.setattr(
@@ -82,16 +96,14 @@ class TestInliteCoordinatorBluetooth:
         )
 
         assert coordinator._find_ble_device() is current
-        assert coordinator._ble_address == "hub-address"
-        update_entry.assert_called_once_with(
-            coordinator.entry,
-            data={"ble_address": "hub-address"},
-        )
+        assert coordinator._ble_address is None
+        update_entry.assert_not_called()
 
-    def test_callback_ignores_a_different_configured_hub(self) -> None:
-        """Advertisements for another hub do not replace the configured route."""
+    def test_callback_retains_alternate_without_replacing_configured_hub(self) -> None:
+        """Alternate advertisements remain candidates without becoming trusted."""
         coordinator = object.__new__(InliteCoordinator)
         coordinator._ble_address = "configured"
+        coordinator._ble_candidates = {}
         coordinator._rssi = -55
         coordinator.entry = SimpleNamespace(data={"ble_address": "configured"})
         coordinator.hass = SimpleNamespace(
@@ -100,17 +112,19 @@ class TestInliteCoordinatorBluetooth:
         configured = ServiceInfo("inlitebt", "configured")
         coordinator._ble_service_info = configured
 
-        coordinator.update_ble_service_info(
-            ServiceInfo("inlitebt", "other", rssi=-90)
-        )
+        other = ServiceInfo("inlitebt", "other", rssi=-40)
+        coordinator.update_ble_service_info(other)
 
         assert coordinator._ble_service_info is configured
         assert coordinator.rssi == -55
+        assert coordinator._ble_candidates == {"other": other}
+        coordinator.hass.config_entries.async_update_entry.assert_not_called()
 
     def test_callback_caches_rssi_for_configured_hub(self) -> None:
         """A matching advertisement updates the diagnostic RSSI value."""
         coordinator = object.__new__(InliteCoordinator)
         coordinator._ble_address = "configured"
+        coordinator._ble_candidates = {}
         coordinator._rssi = None
         coordinator.entry = SimpleNamespace(data={"ble_address": "configured"})
         coordinator.hass = SimpleNamespace(
@@ -122,6 +136,77 @@ class TestInliteCoordinatorBluetooth:
 
         assert coordinator._ble_service_info is current
         assert coordinator.rssi == -72
+
+    def test_find_prefers_configured_address_over_stronger_candidate(
+        self, monkeypatch
+    ) -> None:
+        """RSSI cannot override the last gateway validated by the garden."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator.hass = object()
+        coordinator._ble_address = "configured"
+        coordinator._ble_candidates = {}
+        coordinator._ble_service_info = None
+        coordinator._rssi = None
+        configured = ServiceInfo("inlitebt", "configured", rssi=-80)
+        stronger = ServiceInfo("inlitebt", "neighbor", rssi=-35)
+
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
+            lambda hass, address, connectable: configured,
+        )
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
+            lambda hass, connectable: [stronger],
+        )
+
+        assert coordinator._find_ble_device() is configured
+
+    def test_find_uses_strongest_alternate_after_configured_address_fails(
+        self, monkeypatch
+    ) -> None:
+        """A failed stored address can fall back to another visible advertiser."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator.hass = object()
+        coordinator._ble_address = "configured"
+        coordinator._ble_candidates = {}
+        coordinator._ble_service_info = None
+        coordinator._rssi = None
+        weak = ServiceInfo("inlitebt", "weak", rssi=-85)
+        strong = ServiceInfo("inlitebt", "strong", rssi=-50)
+
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
+            lambda hass, address, connectable: None,
+        )
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
+            lambda hass, connectable: [weak, strong],
+        )
+
+        assert coordinator._find_ble_device({"configured"}) is strong
+        assert coordinator.rssi is None
+
+    @pytest.mark.asyncio
+    async def test_connection_failure_keeps_attempted_address_for_rotation(
+        self, monkeypatch
+    ) -> None:
+        """The retry loop can exclude an address that failed to connect."""
+        coordinator = object.__new__(InliteCoordinator)
+        candidate = ServiceInfo("inlitebt", "unreachable")
+        coordinator._active_ble_address = None
+        coordinator._ble_service_info = candidate
+        coordinator._find_ble_device = lambda excluded_addresses=None: candidate
+        coordinator._service_info_for_address = lambda address: candidate
+        hub = SimpleNamespace(is_connected=False)
+        connect = AsyncMock(side_effect=ConnectionError("unreachable"))
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.establish_connection", connect
+        )
+
+        with pytest.raises(ConnectionError, match="unreachable"):
+            await coordinator._ensure_connected(hub)
+
+        assert coordinator._active_ble_address == "unreachable"
 
     def test_route_reset_does_not_erase_last_rssi(self) -> None:
         """Connection retries retain signal data for troubleshooting."""
@@ -150,6 +235,64 @@ class TestInliteCoordinatorLifecycle:
 
         sleep.assert_not_awaited()
         assert coordinator._available is False
+
+    @pytest.mark.asyncio
+    async def test_poll_persists_only_candidate_with_valid_mesh_response(
+        self, monkeypatch
+    ) -> None:
+        """A neighbor is rejected before the working garden gateway is saved."""
+        coordinator = object.__new__(InliteCoordinator)
+        update_entry = Mock()
+        coordinator.hass = SimpleNamespace(
+            config_entries=SimpleNamespace(async_update_entry=update_entry)
+        )
+        coordinator.entry = SimpleNamespace(data={"ble_address": "old"})
+        coordinator._stopping = False
+        coordinator._available = False
+        coordinator._ble_lock = asyncio.Lock()
+        coordinator._active_ble_task = None
+        coordinator._disconnect_timer = None
+        coordinator._ble_address = "old"
+        coordinator._ble_candidates = {}
+        coordinator._ble_service_info = None
+        coordinator._active_ble_address = None
+        coordinator._rssi = None
+        coordinator._find_ble_device = lambda excluded_addresses=None: ServiceInfo(
+            "inlitebt", "old"
+        )
+        coordinator._candidate_attempt_count = lambda: 2
+        coordinator._schedule_idle_disconnect = Mock()
+        zone_state = object()
+
+        hub = SimpleNamespace(
+            last_query_successful=False,
+            disconnect=AsyncMock(),
+        )
+        coordinator._hubs = {1: hub}
+        addresses = iter(("neighbor", "working"))
+
+        async def ensure_connected(candidate_hub, excluded_addresses=None):
+            address = next(addresses)
+            coordinator._active_ble_address = address
+            candidate_hub.last_query_successful = address == "working"
+            return address
+
+        async def query_zone_states():
+            return {0: zone_state}
+
+        coordinator._ensure_connected = ensure_connected
+        hub.query_zone_states = query_zone_states
+        sleep = AsyncMock()
+        monkeypatch.setattr("asyncio.sleep", sleep)
+
+        states = await coordinator._async_update_data()
+
+        assert states == {1: {0: zone_state}}
+        update_entry.assert_called_once_with(
+            coordinator.entry,
+            data={"ble_address": "working"},
+        )
+        hub.disconnect.assert_awaited_once_with()
 
     @pytest.mark.asyncio
     async def test_shutdown_cancels_active_ble_work_before_disconnect(

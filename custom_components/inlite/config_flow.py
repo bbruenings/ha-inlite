@@ -86,9 +86,11 @@ class InliteConfigFlow(ConfigFlow, domain=DOMAIN):
         if current_entries := self._async_current_entries():
             entry = current_entries[0]
             await self.async_set_unique_id(entry.unique_id)
-            self._abort_if_unique_id_configured(
-                updates={CONF_BLE_ADDRESS: discovery_info.address}
-            )
+            # The local name is shared by every in-lite gateway, including hubs
+            # from neighboring gardens. Discovery can wake an entry in
+            # SETUP_RETRY, but it must not change the garden's transport address
+            # until the coordinator has authenticated a mesh response.
+            self._abort_if_unique_id_configured()
 
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()

@@ -7,7 +7,6 @@ import pytest
 pytest.importorskip("homeassistant")
 
 from custom_components.inlite.config_flow import InliteConfigFlow  # noqa: E402
-from custom_components.inlite.const import CONF_BLE_ADDRESS  # noqa: E402
 
 
 class FlowAborted(Exception):
@@ -15,8 +14,8 @@ class FlowAborted(Exception):
 
 
 @pytest.mark.asyncio
-async def test_bluetooth_discovery_associates_existing_garden_entry() -> None:
-    """Rediscovery updates the transport address through the existing entry."""
+async def test_bluetooth_discovery_does_not_replace_existing_address() -> None:
+    """An unverified advertiser must not replace a garden's working gateway."""
     flow = object.__new__(InliteConfigFlow)
     entry = SimpleNamespace(unique_id="garden-id")
     unique_ids: list[str] = []
@@ -40,4 +39,4 @@ async def test_bluetooth_discovery_associates_existing_garden_entry() -> None:
         await flow.async_step_bluetooth(SimpleNamespace(address="AA:BB"))
 
     assert unique_ids == ["garden-id"]
-    assert captured_updates == {CONF_BLE_ADDRESS: "AA:BB"}
+    assert captured_updates is None

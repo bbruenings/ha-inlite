@@ -78,9 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
     """Set up in-lite from a config entry."""
     coordinator = InliteCoordinator(hass, entry)
 
-    # Register a BLE callback that:
-    # 1. Suppresses future discovery notifications for this device
-    # 2. Keeps the BLE device reference fresh (critical for ESPHome proxies)
+    # Track every nearby gateway and keep its current adapter/proxy route fresh.
     @callback
     def _async_update_ble(
         service_info: bluetooth.BluetoothServiceInfoBleak,
@@ -89,11 +87,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
         """Update the cached BLE device from advertisement data."""
         coordinator.update_ble_service_info(service_info)
 
-    matcher = (
-        BluetoothCallbackMatcher(address=coordinator.ble_address)
-        if coordinator.ble_address is not None
-        else BluetoothCallbackMatcher(local_name=BLE_LOCAL_NAME)
-    )
+    # Listen for every in-lite gateway. The configured address is only a
+    # last-known-good preference; alternates are needed when that gateway is no
+    # longer reachable through any local adapter or ESPHome proxy.
+    matcher = BluetoothCallbackMatcher(local_name=BLE_LOCAL_NAME)
     entry.async_on_unload(
         bluetooth.async_register_callback(
             hass,
