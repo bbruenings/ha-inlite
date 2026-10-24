@@ -67,6 +67,7 @@ class TestInliteHub:
     def test_zone_states_empty_initially(self) -> None:
         hub = InliteHub(device_id=1, passphrase="test")
         assert hub.zone_states == {}
+        assert hub.last_query_successful is False
 
     def test_disconnect_calls_client_even_when_reported_disconnected(self) -> None:
         """Shutdown still asks a remote proxy to release the hub connection."""
@@ -158,6 +159,18 @@ class TestInliteHub:
         assert states[0].output_mode == 0x01
         assert states[0].output_state == 0x00
         assert states[0].is_on is False
+        assert hub.last_query_successful is True
+
+    def test_failed_query_is_not_reported_as_authenticated(self) -> None:
+        """Cached states cannot validate a newly selected BLE advertiser."""
+        hub = InliteHub(device_id=1, passphrase="test")
+        hub._zone_states[0] = ZoneState(output_id=0, output_state=0x01)
+        hub._send_acknowledged_command = AsyncMock(return_value=None)
+
+        states = run_async(hub.query_zone_states())
+
+        assert states == hub.zone_states
+        assert hub.last_query_successful is False
 
     def test_successful_commands_update_cached_output_state(self) -> None:
         """Optimistic command state follows the field used by is_on."""

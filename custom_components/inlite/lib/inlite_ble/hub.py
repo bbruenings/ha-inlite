@@ -101,6 +101,7 @@ class InliteHub:
         self._last_ack_data = b""
         self._last_stream_data = b""
         self._zone_states: dict[int, ZoneState] = {}
+        self._last_query_successful = False
         self._notification_callback: Callable[[dict[str, Any]], None] | None = None
         self._on_state_update = on_state_update
 
@@ -119,6 +120,11 @@ class InliteHub:
     @property
     def zone_states(self) -> dict[int, ZoneState]:
         return self._zone_states
+
+    @property
+    def last_query_successful(self) -> bool:
+        """Return whether the latest zone query had a valid mesh response."""
+        return self._last_query_successful
 
     async def scan(self, timeout: float = 10.0) -> BLEDevice | None:
         """Scan for the in-lite hub by name or address."""
@@ -412,6 +418,7 @@ class InliteHub:
         Returns:
             Dict mapping output_id → ZoneState for each zone.
         """
+        self._last_query_successful = False
         stream = await self._send_acknowledged_command(
             OPCODE_GET_INFO_DEVICES, b""
         )
@@ -431,9 +438,13 @@ class InliteHub:
         cmd_type = stream[2]
         opcode = stream[3] | (stream[4] << 8)
 
-        if opcode != OPCODE_GET_INFO_DEVICES:
+        if cmd_type != 0x02 or opcode != OPCODE_GET_INFO_DEVICES:
             _LOGGER.warning("Unexpected opcode in STREAM: 0x%04X", opcode)
             return self._zone_states
+
+        # A matching decrypted response proves this advertiser belongs to the
+        # configured garden, so the coordinator may trust its BLE address.
+        self._last_query_successful = True
 
         # vendor_id = stream[5]
         # product_id = stream[6]
