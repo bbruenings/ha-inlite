@@ -190,3 +190,5 @@ This integration was built with the help of [GitHub Copilot](https://github.com/
 [validate-url]: https://github.com/bbruenings/ha-inlite/actions/workflows/validate.yml
 [tests-badge]: https://github.com/bbruenings/ha-inlite/actions/workflows/tests.yml/badge.svg
 [tests-url]: https://github.com/bbruenings/ha-inlite/actions/workflows/tests.yml
+
+<!-- pipeline test marker -->
