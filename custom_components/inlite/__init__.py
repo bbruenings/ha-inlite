@@ -40,11 +40,13 @@ LEGACY_CONF_STARTUP_DELAY = "startup_delay_seconds"
 
 
 @callback
-def _remove_legacy_gateway_device(hass: HomeAssistant, garden_id: str) -> None:
+def _remove_legacy_gateway_device(
+    hass: HomeAssistant, garden_id: str, config_entry_id: str
+) -> None:
     """Remove the obsolete standalone Bluetooth gateway device."""
     device_registry = dr.async_get(hass)
-    legacy_device = device_registry.async_get_device(
-        identifiers={(DOMAIN, f"{garden_id}_bluetooth_gateway")}
+    legacy_device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, f"{garden_id}_bluetooth_gateway"), config_entry_id
     )
     if legacy_device is None:
         return
@@ -124,7 +126,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: InliteConfigEntry) -> bo
     # The initial RSSI implementation created a separate gateway device. The
     # sensor now belongs to the existing hub, so remove that persisted orphan
     # after entity setup has reassigned the sensor in the entity registry.
-    _remove_legacy_gateway_device(hass, entry.data[CONF_GARDEN_ID])
+    _remove_legacy_gateway_device(hass, entry.data[CONF_GARDEN_ID], entry.entry_id)
     return True
 
 
