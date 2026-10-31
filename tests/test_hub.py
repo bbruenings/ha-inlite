@@ -2,10 +2,17 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import inlite_ble.hub as hub_module
 from inlite_ble.hub import InliteHub, ZoneState
-from inlite_ble.protocol import OPCODE_GET_INFO_DEVICES, OPCODE_OOB_ALL_OUTLETS
+from inlite_ble.protocol import (
+    OPCODE_GET_INFO_DEVICES,
+    OPCODE_OOB_ALL_OUTLETS,
+    PKT_BLOCK_ACK,
+    PKT_BLOCK_DATA,
+    PKT_BLOCK_FLUSH,
+)
 
 
 def run_async(coroutine):
@@ -90,6 +97,87 @@ class TestInliteHub:
         import inspect
         source = inspect.getsource(InliteHub._on_notification)
         assert "call_soon_threadsafe" in source
+
+    def test_notification_routes_flush_separately_from_ack(self) -> None:
+        """A response FLUSH cannot satisfy a regular command ACK wait."""
+        hub = InliteHub(device_id=1, passphrase="test")
+        hub._crypto.decrypt_packet = MagicMock(
+            return_value={"pkt_type": PKT_BLOCK_FLUSH, "data": b"\x00\x00"}
+        )
+
+        async def receive() -> None:
+            hub._loop = asyncio.get_running_loop()
+            hub._on_notification(None, bytearray(b"encrypted"))
+            await asyncio.sleep(0)
+
+            assert hub._flush_queue.get_nowait() == b"\x00\x00"
+            assert hub._ack_queue.empty()
+
+        run_async(receive())
+
+    def test_acknowledged_command_matches_firmware_52_trace(
+        self, monkeypatch
+    ) -> None:
+        """The traced exchange completes without either three-second timeout."""
+        hub = InliteHub(device_id=1, passphrase="test")
+        response = b"\x00\x00" + bytes(range(29))
+        writes: list[tuple[int, bytes]] = []
+        monkeypatch.setattr(hub_module, "WRITE_DELAY", 0)
+
+        async def fake_write(dest_id: int, pkt_type: int, data: bytes) -> None:
+            assert dest_id == 1
+            writes.append((pkt_type, data))
+            write_number = len(writes)
+            if write_number == 1:
+                assert (pkt_type, data) == (PKT_BLOCK_FLUSH, b"\x00\x00")
+                hub._ack_queue.put_nowait(b"\x00\x00")
+            elif write_number == 2:
+                assert pkt_type == PKT_BLOCK_DATA
+                assert len(data) == 5
+                # Firmware can repeat the previous zero ACK before sending the
+                # real three-byte command-data count.
+                hub._ack_queue.put_nowait(b"\x00\x00")
+                hub._ack_queue.put_nowait(b"\x03\x00")
+            elif write_number == 3:
+                assert (pkt_type, data) == (PKT_BLOCK_FLUSH, b"\x03\x00")
+                # The response FLUSH can arrive in the same event-loop turn as
+                # command completion, and may be repeated until acknowledged.
+                hub._flush_queue.put_nowait(b"\x00\x00")
+                hub._flush_queue.put_nowait(b"\x00\x00")
+                hub._ack_queue.put_nowait(b"\x03\x00\xef")
+            elif write_number == 4:
+                assert (pkt_type, data) == (PKT_BLOCK_ACK, b"\x00\x00")
+                hub._stream_queue.put_nowait(response)
+            elif write_number == 5:
+                assert (pkt_type, data) == (PKT_BLOCK_ACK, b"\x1d\x00")
+                # Ignore a queued duplicate FLUSH(0) and wait for FLUSH(29).
+                hub._flush_queue.put_nowait(b"\x1d\x00")
+            elif write_number == 6:
+                assert (pkt_type, data) == (PKT_BLOCK_ACK, b"\x1d\x00\xef")
+            else:
+                raise AssertionError("unexpected protocol write")
+
+        hub._write_mesh = fake_write
+
+        result = run_async(
+            asyncio.wait_for(
+                hub._send_acknowledged_command(OPCODE_GET_INFO_DEVICES, b""),
+                timeout=0.2,
+            )
+        )
+
+        assert result == response
+        assert [packet_type for packet_type, _ in writes] == [
+            PKT_BLOCK_FLUSH,
+            PKT_BLOCK_DATA,
+            PKT_BLOCK_FLUSH,
+            PKT_BLOCK_ACK,
+            PKT_BLOCK_ACK,
+            PKT_BLOCK_ACK,
+        ]
+        assert not hub._ack_queue.qsize()
+        assert not hub._flush_queue.qsize()
+        assert not hub._stream_queue.qsize()
 
     def test_scheduled_off_oob_update_reports_zone_off(self) -> None:
         """A timer update can turn the output off without changing auto mode."""

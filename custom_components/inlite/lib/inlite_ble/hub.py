@@ -96,10 +96,9 @@ class InliteHub:
         self._ble_address = ble_address
         self._client: BleakClient | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._ack_event = asyncio.Event()
-        self._stream_event = asyncio.Event()
-        self._last_ack_data = b""
-        self._last_stream_data = b""
+        self._ack_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._flush_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._stream_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._zone_states: dict[int, ZoneState] = {}
         self._last_query_successful = False
         self._notification_callback: Callable[[dict[str, Any]], None] | None = None
@@ -211,11 +210,11 @@ class InliteHub:
             return
 
         if pkt_type == PKT_BLOCK_ACK:
-            self._last_ack_data = payload
-            loop.call_soon_threadsafe(self._ack_event.set)
+            loop.call_soon_threadsafe(self._ack_queue.put_nowait, payload)
+        elif pkt_type == PKT_BLOCK_FLUSH:
+            loop.call_soon_threadsafe(self._flush_queue.put_nowait, payload)
         elif pkt_type == PKT_BLOCK_STREAM:
-            self._last_stream_data = payload
-            loop.call_soon_threadsafe(self._stream_event.set)
+            loop.call_soon_threadsafe(self._stream_queue.put_nowait, payload)
         elif pkt_type == PKT_BLOCK_DATA_BLK:
             loop.call_soon_threadsafe(self._parse_oob_broadcast, payload)
 
@@ -270,17 +269,112 @@ class InliteHub:
         packet = self._crypto.encrypt_packet(dest_id, pkt_type, data)
         await self._write(packet)
 
-    async def _wait_ack(self, timeout: float = ACK_TIMEOUT) -> bytes:
-        """Wait for an ACK notification from the hub.
+    @staticmethod
+    def _packet_count(payload: bytes) -> int | None:
+        """Return a block packet's count, when it carries one."""
+        if len(payload) < 2:
+            return None
+        return int.from_bytes(payload[:2], "little")
 
-        The caller must clear _ack_event BEFORE sending the write.
-        """
-        try:
-            await asyncio.wait_for(self._ack_event.wait(), timeout)
-        except asyncio.TimeoutError:
-            _LOGGER.warning("ACK timeout after %.1fs", timeout)
-            return b""
-        return self._last_ack_data
+    @staticmethod
+    def _is_completion_ack(payload: bytes) -> bool:
+        """Return whether an ACK carries the protocol completion marker."""
+        return len(payload) >= 3 and payload[-1] == 0xEF
+
+    @classmethod
+    def _is_start_ack(cls, payload: bytes) -> bool:
+        """Match a regular ACK for the initial zero-count FLUSH."""
+        count = cls._packet_count(payload)
+        return not cls._is_completion_ack(payload) and count in (None, 0)
+
+    @classmethod
+    def _is_data_ack(cls, payload: bytes) -> bool:
+        """Match a regular ACK that advances past the command's data."""
+        count = cls._packet_count(payload)
+        return not cls._is_completion_ack(payload) and (count is None or count > 0)
+
+    @classmethod
+    def _matches_count(cls, expected: int) -> Callable[[bytes], bool]:
+        """Return a packet matcher for an exact little-endian count."""
+        return lambda payload: cls._packet_count(payload) == expected
+
+    @staticmethod
+    def _block_data_count(payload: bytes) -> int:
+        """Return cumulative data bytes, excluding the two-byte offset header."""
+        if len(payload) < 2:
+            return 0
+        return int.from_bytes(payload[:2], "little") + len(payload) - 2
+
+    @staticmethod
+    def _drain_queue(queue: asyncio.Queue[bytes]) -> None:
+        """Discard packets left by a completed protocol exchange."""
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+
+    def _begin_exchange(self) -> None:
+        """Start with empty protocol queues while retaining OOB notifications."""
+        self._drain_queue(self._ack_queue)
+        self._drain_queue(self._flush_queue)
+        self._drain_queue(self._stream_queue)
+
+    async def _wait_packet(
+        self,
+        queue: asyncio.Queue[bytes],
+        timeout: float,
+        packet_name: str,
+        matcher: Callable[[bytes], bool] | None = None,
+    ) -> bytes:
+        """Wait for the next packet matching the active protocol phase."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                _LOGGER.warning("%s timeout after %.1fs", packet_name, timeout)
+                return b""
+            try:
+                payload = await asyncio.wait_for(queue.get(), remaining)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("%s timeout after %.1fs", packet_name, timeout)
+                return b""
+            if matcher is None or matcher(payload):
+                return payload
+            _LOGGER.debug(
+                "Ignoring %s with count=%s while waiting for matching phase",
+                packet_name,
+                self._packet_count(payload),
+            )
+
+    async def _wait_ack(
+        self,
+        timeout: float = ACK_TIMEOUT,
+        matcher: Callable[[bytes], bool] | None = None,
+        phase: str = "ACK",
+    ) -> bytes:
+        """Wait for an ACK matching the current command phase."""
+        return await self._wait_packet(
+            self._ack_queue, timeout, phase, matcher
+        )
+
+    async def _wait_flush(
+        self,
+        timeout: float = STREAM_TIMEOUT,
+        matcher: Callable[[bytes], bool] | None = None,
+        phase: str = "FLUSH",
+    ) -> bytes:
+        """Wait for a hub FLUSH packet matching the response phase."""
+        return await self._wait_packet(
+            self._flush_queue, timeout, phase, matcher
+        )
+
+    async def _wait_stream(self, timeout: float = STREAM_TIMEOUT) -> bytes:
+        """Wait for a hub STREAM response."""
+        return await self._wait_packet(
+            self._stream_queue, timeout, "STREAM"
+        )
 
     async def _send_command(
         self, opcode: int, command_data: bytes, acknowledged: bool = True
@@ -294,28 +388,28 @@ class InliteHub:
         4. ACK the hub's response
         """
         dest = self._device_id
+        self._begin_exchange()
 
-        # Step 1: Flush (start) — clear event BEFORE writing
-        self._ack_event.clear()
+        # Step 1: Flush (start)
         await self._write_mesh(dest, PKT_BLOCK_FLUSH, build_flush_payload(0))
-        ack = await self._wait_ack()
+        await self._wait_ack(matcher=self._is_start_ack, phase="start ACK")
 
         # Step 2: Send command data
         block_data = build_block_data_payload(opcode, command_data)
-        self._ack_event.clear()
         await self._write_mesh(dest, PKT_BLOCK_DATA, block_data)
-        ack = await self._wait_ack()
+        ack = await self._wait_ack(matcher=self._is_data_ack, phase="data ACK")
 
         # Parse acked byte count
         if len(ack) >= 2:
             acked_bytes = ack[0] | (ack[1] << 8)
         else:
-            acked_bytes = len(block_data)
+            acked_bytes = self._block_data_count(block_data)
 
         # Step 3: Flush (end)
-        self._ack_event.clear()
         await self._write_mesh(dest, PKT_BLOCK_FLUSH, build_flush_payload(acked_bytes))
-        ack = await self._wait_ack()
+        ack = await self._wait_ack(
+            matcher=self._is_completion_ack, phase="completion ACK"
+        )
 
         # Check for completion marker (0xef suffix)
         success = len(ack) >= 3 and ack[-1] == 0xEF
@@ -344,25 +438,25 @@ class InliteHub:
             The STREAM payload bytes, or None on failure.
         """
         dest = self._device_id
+        self._begin_exchange()
 
         # Step 1: Send command via block streaming
-        self._ack_event.clear()
         await self._write_mesh(dest, PKT_BLOCK_FLUSH, build_flush_payload(0))
-        await self._wait_ack()
+        await self._wait_ack(matcher=self._is_start_ack, phase="start ACK")
 
         block_data = build_block_data_payload(opcode, command_data)
-        self._ack_event.clear()
         await self._write_mesh(dest, PKT_BLOCK_DATA, block_data)
-        ack = await self._wait_ack()
+        ack = await self._wait_ack(matcher=self._is_data_ack, phase="data ACK")
 
         if len(ack) >= 2:
             acked_bytes = ack[0] | (ack[1] << 8)
         else:
-            acked_bytes = len(block_data)
+            acked_bytes = self._block_data_count(block_data)
 
-        self._ack_event.clear()
         await self._write_mesh(dest, PKT_BLOCK_FLUSH, build_flush_payload(acked_bytes))
-        ack = await self._wait_ack()
+        ack = await self._wait_ack(
+            matcher=self._is_completion_ack, phase="completion ACK"
+        )
 
         success = len(ack) >= 3 and ack[-1] == 0xEF
         if not success:
@@ -370,43 +464,42 @@ class InliteHub:
             return None
 
         # Step 2: Hub sends FLUSH(0) — ACK it
-        self._ack_event.clear()
-        ack = await self._wait_ack(timeout=STREAM_TIMEOUT)
+        flush = await self._wait_flush(
+            matcher=self._matches_count(0), phase="response-start FLUSH"
+        )
+        if not flush:
+            return None
         # ACK the hub's flush with 0
         await asyncio.sleep(WRITE_DELAY)
         await self._write_mesh(dest, PKT_BLOCK_ACK, build_ack_payload(0))
 
         # Step 3: Hub sends STREAM(data) — collect and ACK
-        self._stream_event.clear()
-        try:
-            await asyncio.wait_for(self._stream_event.wait(), STREAM_TIMEOUT)
-        except asyncio.TimeoutError:
-            _LOGGER.warning("STREAM timeout for command 0x%04X", opcode)
+        stream_data = await self._wait_stream()
+        if not stream_data:
+            _LOGGER.warning("No STREAM data for command 0x%04X", opcode)
             return None
 
-        stream_data = self._last_stream_data
-
-        # Parse byte count from stream offset header
-        if len(stream_data) >= 2:
-            stream_bytes = len(stream_data)
-        else:
-            stream_bytes = 0
+        # The count excludes the STREAM's two-byte offset header. For a
+        # 31-byte offset-zero response the hub therefore expects ACK(29).
+        stream_bytes = self._block_data_count(stream_data)
 
         # ACK the stream data
         await asyncio.sleep(WRITE_DELAY)
         await self._write_mesh(dest, PKT_BLOCK_ACK, build_ack_payload(stream_bytes))
 
         # Step 4: Hub sends FLUSH(n) — ACK with completion marker
-        self._ack_event.clear()
-        ack = await self._wait_ack(timeout=STREAM_TIMEOUT)
-        if len(ack) >= 2:
-            flush_count = ack[0] | (ack[1] << 8)
-        else:
-            flush_count = stream_bytes
+        flush = await self._wait_flush(
+            matcher=self._matches_count(stream_bytes),
+            phase="response-final FLUSH",
+        )
+        if not flush:
+            return None
+        flush_count = self._packet_count(flush)
+        assert flush_count is not None
         await asyncio.sleep(WRITE_DELAY)
         await self._write_mesh(
             dest, PKT_BLOCK_ACK,
-            build_ack_payload(flush_count + 0xEF, end=False)
+            build_ack_payload(flush_count, end=True)
         )
 
         _LOGGER.info("Acknowledged command 0x%04X: got %d bytes", opcode, len(stream_data))
