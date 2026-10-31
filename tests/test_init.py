@@ -48,7 +48,7 @@ async def test_migration_removes_startup_delay_and_resets_retention() -> None:
 def test_removes_obsolete_standalone_gateway_device(monkeypatch) -> None:
     """The old RSSI-only device is removed after the sensor moves to the hub."""
     device_registry = Mock()
-    device_registry.async_get_device.return_value = SimpleNamespace(
+    device_registry.async_get_device_by_identifier.return_value = SimpleNamespace(
         id="legacy-gateway-device"
     )
     monkeypatch.setattr(
@@ -56,10 +56,10 @@ def test_removes_obsolete_standalone_gateway_device(monkeypatch) -> None:
         lambda hass: device_registry,
     )
 
-    _remove_legacy_gateway_device(object(), "garden-1")
+    _remove_legacy_gateway_device(object(), "garden-1", "entry-1")
 
-    device_registry.async_get_device.assert_called_once_with(
-        identifiers={("inlite", "garden-1_bluetooth_gateway")}
+    device_registry.async_get_device_by_identifier.assert_called_once_with(
+        ("inlite", "garden-1_bluetooth_gateway"), "entry-1"
     )
     device_registry.async_remove_device.assert_called_once_with(
         "legacy-gateway-device"
@@ -69,12 +69,15 @@ def test_removes_obsolete_standalone_gateway_device(monkeypatch) -> None:
 def test_legacy_gateway_cleanup_is_idempotent(monkeypatch) -> None:
     """Setup succeeds when the obsolete gateway device is already absent."""
     device_registry = Mock()
-    device_registry.async_get_device.return_value = None
+    device_registry.async_get_device_by_identifier.return_value = None
     monkeypatch.setattr(
         "custom_components.inlite.dr.async_get",
         lambda hass: device_registry,
     )
 
-    _remove_legacy_gateway_device(object(), "garden-1")
+    _remove_legacy_gateway_device(object(), "garden-1", "entry-1")
 
+    device_registry.async_get_device_by_identifier.assert_called_once_with(
+        ("inlite", "garden-1_bluetooth_gateway"), "entry-1"
+    )
     device_registry.async_remove_device.assert_not_called()
