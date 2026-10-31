@@ -1,21 +1,25 @@
 {
-    "domain": "inlite",
-    "name": "in-lite Outdoor Lighting",
-    "bluetooth": [
-        {
-            "local_name": "inlitebt",
-            "connectable": true
-        }
-    ],
-    "codeowners": ["@bbruenings"],
-    "config_flow": true,
-    "dependencies": ["bluetooth"],
-    "documentation": "https://github.com/bbruenings/ha-inlite",
-    "integration_type": "device",
-    "iot_class": "local_polling",
-    "issue_tracker": "https://github.com/bbruenings/ha-inlite/issues",
-    "requirements": [
-        "pycryptodomex>=3.20.0"
-    ],
-    "version": "0.3.0"
+  "domain": "inlite",
+  "name": "in-lite Outdoor Lighting",
+  "bluetooth": [
+    {
+      "local_name": "inlitebt",
+      "connectable": true
+    }
+  ],
+  "codeowners": [
+    "@bbruenings"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth"
+  ],
+  "documentation": "https://github.com/bbruenings/ha-inlite",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/bbruenings/ha-inlite/issues",
+  "requirements": [
+    "pycryptodomex>=3.20.0"
+  ],
+  "version": "0.3.1"
 }
