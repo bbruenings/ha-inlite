@@ -186,6 +186,30 @@ class TestInliteCoordinatorBluetooth:
         assert coordinator._find_ble_device({"configured"}) is strong
         assert coordinator.rssi is None
 
+    def test_find_reuses_only_candidate_after_retry_rotation_is_exhausted(
+        self, monkeypatch
+    ) -> None:
+        """A one-gateway setup can reconnect for all configured attempts."""
+        coordinator = object.__new__(InliteCoordinator)
+        coordinator.hass = object()
+        coordinator._ble_address = "configured"
+        coordinator._ble_candidates = {}
+        coordinator._ble_service_info = None
+        coordinator._rssi = None
+        configured = ServiceInfo("inlitebt", "configured", rssi=-60)
+
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_last_service_info",
+            lambda hass, address, connectable: configured,
+        )
+        monkeypatch.setattr(
+            "custom_components.inlite.coordinator.bluetooth.async_discovered_service_info",
+            lambda hass, connectable: [configured],
+        )
+
+        assert coordinator._find_ble_device({"configured"}) is configured
+        assert coordinator._ble_service_info is configured
+
     @pytest.mark.asyncio
     async def test_connection_failure_keeps_attempted_address_for_rotation(
         self, monkeypatch

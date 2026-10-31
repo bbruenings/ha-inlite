@@ -208,16 +208,33 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
         excluded = excluded_addresses or set()
         self._refresh_ble_candidates()
 
-        if self._ble_address is not None and self._ble_address not in excluded:
-            if info := self._service_info_for_address(self._ble_address):
-                self._select_ble_service_info(info)
-                return info
+        preferred_info = None
+        if self._ble_address is not None:
+            preferred_info = self._service_info_for_address(self._ble_address)
+            if preferred_info is not None and self._ble_address not in excluded:
+                self._select_ble_service_info(preferred_info)
+                return preferred_info
 
         candidates = [
             info
             for address, info in self._ble_candidates.items()
             if address not in excluded
         ]
+        if not candidates and excluded:
+            # Exclusions rotate retries through different gateways, but the
+            # operation may have more attempts than visible addresses. Once
+            # every candidate has been tried, recycle them so a one-gateway
+            # installation still gets its configured reconnect attempts.
+            _LOGGER.debug(
+                "All %d visible in-lite gateway candidates have been tried; "
+                "reusing them for the remaining retry attempts",
+                len(self._ble_candidates),
+            )
+            if preferred_info is not None:
+                self._select_ble_service_info(preferred_info)
+                return preferred_info
+            candidates = list(self._ble_candidates.values())
+
         if not candidates:
             return None
 
@@ -431,6 +448,7 @@ class InliteCoordinator(DataUpdateCoordinator[dict[int, dict[int, ZoneState]]]):
                         "Command attempt %d/%d for hub 0x%04X zone %d: no ACK",
                         attempt + 1, attempt_count, device_id, output_id,
                     )
+                    last_error = ConnectionError("hub did not acknowledge command")
                     failed_addresses.add(attempt_address)
                     await hub.disconnect()
                     self._active_ble_address = None
